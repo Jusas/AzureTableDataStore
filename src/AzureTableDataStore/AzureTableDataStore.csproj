@@ -1,0 +1,19 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+    <PackageRequireLicenseAcceptance>true</PackageRequireLicenseAcceptance>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <Version>0.9.0</Version>
+    <Authors>Jussi Saarivirta</Authors>
+    <Description>A simplified interface to Azure Storage Tables with the ability to reference blobs in Blob Containers.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Azure.Storage.Blobs" Version="12.4.4" />
+    <PackageReference Include="Microsoft.Azure.Cosmos.Table" Version="1.0.7" />
+    <PackageReference Include="System.Linq.Expressions" Version="4.3.0" />
+  </ItemGroup>
+
+</Project>

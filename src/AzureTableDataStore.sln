@@ -1,0 +1,36 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 16
+VisualStudioVersion = 16.0.29926.136
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "AzureTableDataStore", "AzureTableDataStore\AzureTableDataStore.csproj", "{526A630B-D0B3-4C53-B9EC-53C7E652708A}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "AzureTableDataStore.Tests", "AzureTableDataStore.Tests\AzureTableDataStore.Tests.csproj", "{0663DA2F-F5FA-44D9-AD5D-428179EE8978}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{B1A0C35D-5C76-4A47-A585-95E5645F46EF}"
+	ProjectSection(SolutionItems) = preProject
+		TODO.txt = TODO.txt
+	EndProjectSection
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{526A630B-D0B3-4C53-B9EC-53C7E652708A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{526A630B-D0B3-4C53-B9EC-53C7E652708A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{526A630B-D0B3-4C53-B9EC-53C7E652708A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{526A630B-D0B3-4C53-B9EC-53C7E652708A}.Release|Any CPU.Build.0 = Release|Any CPU
+		{0663DA2F-F5FA-44D9-AD5D-428179EE8978}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{0663DA2F-F5FA-44D9-AD5D-428179EE8978}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{0663DA2F-F5FA-44D9-AD5D-428179EE8978}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{0663DA2F-F5FA-44D9-AD5D-428179EE8978}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {F3550FC2-1879-4907-A12E-A24EAB56E6B8}
+	EndGlobalSection
+EndGlobal

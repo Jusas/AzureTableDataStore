@@ -1,0 +1,3 @@
+- if blob is small enough, insert into table as bytes with additional fields.
+- in mass inserts, batch small (non-blob storage requiring) inserts together for efficiency
+- mime type is not recognized correctly
