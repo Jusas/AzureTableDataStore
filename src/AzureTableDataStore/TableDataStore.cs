@@ -238,6 +238,9 @@ namespace AzureTableDataStore
                 StripSpeciallyHandledProperties(allSpecialPropertyRefs);
                 var propertyDictionary = EntityPropertyConverter.Flatten(entry, EntityPropertyConverterOptions, null);
 
+                propertyDictionary.Remove(_configuration.RowKeyProperty);
+                propertyDictionary.Remove(_configuration.PartitionKeyProperty);
+
                 var entryKeys = GetEntryKeys(entry);
                 var uploadTasks = blobPropertyRefs
                     .Select(x => UploadBlobAndUpdateReference(x, entryKeys.partitionKey, entryKeys.rowKey)).ToArray();
@@ -255,9 +258,9 @@ namespace AzureTableDataStore
 
                 var tableRef = GetTable();
 
-                var entityRowKey = propertyDictionary[_configuration.RowKeyProperty];
-                var entityPartitionKey = propertyDictionary[_configuration.PartitionKeyProperty];
-                var tableEntity = new DynamicTableEntity(entityPartitionKey.StringValue, entityRowKey.StringValue, "*",
+                var entityRowKey = entryKeys.rowKey;
+                var entityPartitionKey = entryKeys.partitionKey;
+                var tableEntity = new DynamicTableEntity(entryKeys.partitionKey, entityRowKey, "*",
                     propertyDictionary);
 
                 var insertOp = TableOperation.Insert(tableEntity);
@@ -295,12 +298,29 @@ namespace AzureTableDataStore
                                blobPropRef.FlattenedPropertyName,
                                blobPropRef.StoredInstance.Filename);
 
-            var uploadResponse = await containerClient.UploadBlobAsync(blobPath, blobPropRef.StoredInstance.DataStream.Value);
+            var dataStream = await blobPropRef.StoredInstance.AsyncDataStream.Value;
+            var uploadResponse = await containerClient.UploadBlobAsync(blobPath, dataStream);
             // Should we compare the hashes just in case?
-            blobPropRef.StoredInstance.DataStream.Value.Seek(0, SeekOrigin.Begin);
+            dataStream.Seek(0, SeekOrigin.Begin);
             var props = await containerClient.GetBlobClient(blobPath).GetPropertiesAsync();
             blobPropRef.StoredInstance.Length = props.Value.ContentLength;
             blobPropRef.StoredInstance.ContentType = props.Value.ContentType;
+        }
+
+        private async Task<Stream> GetBlobStreamFromAzureBlobStorage(string rowKey, string partitionKey, string flattenedPropertyName, string filename)
+        {
+            var containerClient = GetContainerClient();
+            var blobPath = string.Join("/",
+                _configuration.StorageTableName,
+                partitionKey,
+                rowKey,
+                flattenedPropertyName,
+                filename);
+
+            var blobClient = containerClient.GetBlobClient(blobPath);
+            var downloadRequestResult = await blobClient.DownloadAsync();
+
+            return downloadRequestResult.Value.Content;
         }
 
         private async Task InsertBatched(TData[] entries)
@@ -327,8 +347,110 @@ namespace AzureTableDataStore
         {
             var filterString = AzureStorageQueryTranslator.TranslateExpression(queryExpression, 
                 _configuration.PartitionKeyProperty, _configuration.RowKeyProperty);
-            //TODO
-            return default(TData);
+
+            var tableRef = GetTable();
+            var query = new TableQuery {FilterString = filterString, TakeCount = 1};
+
+            var results = await tableRef.ExecuteQuerySegmentedAsync(query, TransformQueryResult, null);
+
+            return results.Results.FirstOrDefault();
+        }
+
+        private TData TransformQueryResult(string partitionKey,
+            string rowKey,
+            DateTimeOffset timestamp,
+            IDictionary<string, EntityProperty> properties,
+            string etag)
+        {
+            properties.Add(_configuration.RowKeyProperty, EntityProperty.CreateEntityPropertyFromObject(rowKey));
+            properties.Add(_configuration.PartitionKeyProperty, EntityProperty.CreateEntityPropertyFromObject(partitionKey));
+
+            var blobRefProperties =
+                ReflectionUtils.GatherPropertiesWithBlobsRecursive(typeof(TData), EntityPropertyConverterOptions);
+            var collRefProperties =
+                ReflectionUtils.GatherPropertiesWithCollectionsRecursive(typeof(TData), EntityPropertyConverterOptions);
+
+            var blobRefPropertyValues = new Dictionary<string, string>();
+            var collRefPropertyValues = new Dictionary<string, string>();
+
+            var foundBlobRefs = blobRefProperties.Where(x => properties.ContainsKey(x.FlattenedPropertyName));
+            foreach (var @ref in foundBlobRefs)
+            {
+                blobRefPropertyValues.Add(@ref.FlattenedPropertyName,
+                    properties[@ref.FlattenedPropertyName].StringValue);
+                properties.Remove(@ref.FlattenedPropertyName);
+            }
+
+            var foundCollRefs = collRefProperties.Where(x => properties.ContainsKey(x.FlattenedPropertyName));
+            foreach (var @ref in foundCollRefs)
+            {
+                collRefPropertyValues.Add(@ref.FlattenedPropertyName,
+                    properties[@ref.FlattenedPropertyName].StringValue);
+                properties.Remove(@ref.FlattenedPropertyName);
+            }
+            
+            var converted = EntityPropertyConverter.ConvertBack<TData>(properties, EntityPropertyConverterOptions, null);
+            
+            var convertedObjectBlobPropRefs = ReflectionUtils.GatherPropertiesWithBlobsRecursive(converted, EntityPropertyConverterOptions,
+                includeNulls: true);
+            var convertedObjectCollPropRefs = ReflectionUtils.GatherPropertiesWithCollectionsRecursive(converted, EntityPropertyConverterOptions,
+                includeNulls: true);
+
+            foreach (var value in blobRefPropertyValues)
+            {
+                var flattenedPropName = value.Key;
+                var propValue = value.Value;
+
+                var propInfo = convertedObjectBlobPropRefs.First(x => x.FlattenedPropertyName == flattenedPropName);
+                var deserializedValue = JsonConvert.DeserializeObject<StoredBlob>(propValue, _jsonSerializerSettings);
+
+                if (propInfo.SourceObject == null)
+                    propInfo.SourceObject = CreateObjectHierarchyForProperty(converted, flattenedPropName);
+
+                propInfo.Property.SetValue(propInfo.SourceObject, deserializedValue);
+                var filename = deserializedValue.Filename;
+
+                deserializedValue.AsyncDataStream = new Lazy<Task<Stream>>(() => GetBlobStreamFromAzureBlobStorage(rowKey, partitionKey, flattenedPropName, filename));
+            }
+
+            foreach (var value in collRefPropertyValues)
+            {
+                var flattenedPropName = value.Key;
+                var propValue = value.Value;
+
+                var propInfo = convertedObjectCollPropRefs.First(x => x.FlattenedPropertyName == flattenedPropName);
+                var deserializedValue = JsonConvert.DeserializeObject(propValue, propInfo.Property.PropertyType, _jsonSerializerSettings);
+
+                if (propInfo.SourceObject == null)
+                    propInfo.SourceObject = CreateObjectHierarchyForProperty(converted, flattenedPropName);
+
+                propInfo.Property.SetValue(propInfo.SourceObject, deserializedValue);
+            }
+
+            return converted;
+
+        }
+
+        private object CreateObjectHierarchyForProperty(object rootObject, string flattenedPropName)
+        {
+            var propertyPath = flattenedPropName.Split(
+                new string[] {EntityPropertyConverterOptions.PropertyNameDelimiter}, StringSplitOptions.None);
+
+            object current = rootObject;
+            for (var i = 0; i < propertyPath.Length-1; i++)
+            {
+                var property = current.GetType().GetProperty(propertyPath[i], BindingFlags.Instance | BindingFlags.Public);
+                var propertyValue = property.GetValue(current);
+                if (propertyValue == null)
+                {
+                    propertyValue = Activator.CreateInstance(property.PropertyType);
+                    property.SetValue(current, propertyValue);
+                }
+
+                current = propertyValue;
+            }
+
+            return current;
         }
 
         public Task<TData> GetAsync(string query)

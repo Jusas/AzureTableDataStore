@@ -10,11 +10,16 @@ namespace AzureTableDataStore
 {
     public sealed class StoredBlob
     {
-        public string Filename { get; set; } = "";
+        [JsonProperty]
+        public string Filename { get; internal set; } = "";
         
         [JsonIgnore]
-        public Lazy<Stream> DataStream { get; } = null;
+        public Lazy<Task<Stream>> AsyncDataStream { get; internal set; } = null;
+        
+        [JsonProperty]
         public long Length { get; internal set; } = 0;
+
+        [JsonProperty]
         public string ContentType { get; internal set; } = "";
 
         public string GetUrl(bool withSasToken = false, TimeSpan tokenExpiration = default)
@@ -31,14 +36,14 @@ namespace AzureTableDataStore
         {
             Filename = filename;
             Length = data.Length;
-            DataStream = new Lazy<Stream>(() => data);
+            AsyncDataStream = new Lazy<Task<Stream>>(() => Task.FromResult(data));
         }
 
-        public StoredBlob(string filename, Func<Stream> dataFactory)
+        public StoredBlob(string filename, Func<Task<Stream>> dataFactory)
         {
             Filename = filename;
             Length = 0;
-            DataStream = new Lazy<Stream>(dataFactory);
+            AsyncDataStream = new Lazy<Task<Stream>>(dataFactory);
         }
 
         internal StoredBlob(BlobClient sourceBlobClient)
