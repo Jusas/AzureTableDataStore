@@ -132,6 +132,7 @@ namespace AzureTableDataStore.Tests.InternalTests
                 x => x.Age >= 1,
                 x => x.Age <= 1,
                 x => x.Age != 1,
+                x => x.Name.AsComparable() > _sourceObject.Name.AsComparable(),
                 x => !x.ExtendedProperties.HasVisitedBefore,
                 x => x.ExtendedProperties.HasVisitedBefore == true
             };
@@ -144,6 +145,7 @@ namespace AzureTableDataStore.Tests.InternalTests
                 "(Age gte 1)",
                 "(Age lte 1)",
                 "(Age not 1)",
+                "(Name gt 'James Bond')",
                 "ExtendedProperties_HasVisitedBefore not true",
                 "(ExtendedProperties_HasVisitedBefore eq true)"
             };

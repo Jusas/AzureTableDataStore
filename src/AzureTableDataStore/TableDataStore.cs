@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Linq.Expressions;
+using System.Net;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Runtime.Serialization;
@@ -17,7 +18,7 @@ using Newtonsoft.Json;
 
 namespace AzureTableDataStore
 {
-    public class TableDataStore<TData> : ITableDataStore<TData>
+    public class TableDataStore<TData> : ITableDataStore<TData> where TData:new()
     {
         private class Configuration
         {
@@ -224,6 +225,7 @@ namespace AzureTableDataStore
                 propRef.Property.SetValue(propRef.SourceObject, propRef.StoredInstanceAsObject);
         }
 
+
         private async Task InsertOneAsync(TData entry)
         {
             try
@@ -242,6 +244,32 @@ namespace AzureTableDataStore
                 propertyDictionary.Remove(_configuration.PartitionKeyProperty);
 
                 var entryKeys = GetEntryKeys(entry);
+
+                var tableRef = GetTable();
+
+                // Check if the row already exists if we have blobs to upload - we don't want to upload them
+                // if the table insert itself may fail.
+                if (blobPropertyRefs.Any())
+                {
+                    TableOperation existsOp = TableOperation.Retrieve(entryKeys.partitionKey, entryKeys.rowKey, new List<string>());
+                    try
+                    {
+                        await tableRef.ExecuteAsync(existsOp);
+                        throw new AzureTableDataStoreException("Entity with partition key " +
+                            $"'{entryKeys.partitionKey}', row key '{entryKeys.rowKey}' already exists, cannot insert.",
+                            AzureTableDataStoreException.ProblemSourceType.TableStorage);
+                    }
+                    catch (StorageException e)
+                    {
+                        if (e.RequestInformation.HttpStatusCode != 404)
+                        {
+                            throw new AzureTableDataStoreException("Failed to check if entity exists with partition key " +
+                                $"'{entryKeys.partitionKey}', row key '{entryKeys.rowKey}'", 
+                                AzureTableDataStoreException.ProblemSourceType.TableStorage, e);
+                        }
+                    }
+                }
+
                 var uploadTasks = blobPropertyRefs
                     .Select(x => UploadBlobAndUpdateReference(x, entryKeys.partitionKey, entryKeys.rowKey)).ToArray();
                 await Task.WhenAll(uploadTasks);
@@ -256,15 +284,12 @@ namespace AzureTableDataStore
 
                 RestoreSpeciallyHandledProperties(allSpecialPropertyRefs);
 
-                var tableRef = GetTable();
-
-                var entityRowKey = entryKeys.rowKey;
-                var entityPartitionKey = entryKeys.partitionKey;
-                var tableEntity = new DynamicTableEntity(entryKeys.partitionKey, entityRowKey, "*",
+                var tableEntity = new DynamicTableEntity(entryKeys.partitionKey, entryKeys.rowKey, "*",
                     propertyDictionary);
 
                 var insertOp = TableOperation.Insert(tableEntity);
                 await tableRef.ExecuteAsync(insertOp);
+
             }
             catch (AzureTableDataStoreException)
             {
@@ -278,15 +303,17 @@ namespace AzureTableDataStore
             catch (Exception e)
             {
                 if(e.GetType().Namespace.StartsWith("Microsoft.Azure.Cosmos"))
-                    throw new AzureTableDataStoreException("Insert operation failed, outlying Table Storage threw an exception", 
+                    throw new AzureTableDataStoreException("Insert operation failed, outlying Table Storage threw an exception: " + e.Message, 
                         AzureTableDataStoreException.ProblemSourceType.TableStorage, e);
                 if(e.GetType().Namespace.StartsWith("Azure.Storage") || e is Azure.RequestFailedException)
-                    throw new AzureTableDataStoreException("Insert operation failed and entry was not inserted, outlying Blob Storage threw an exception", 
+                    throw new AzureTableDataStoreException("Insert operation failed and entry was not inserted, outlying Blob Storage threw an exception: " + e.Message, 
                         AzureTableDataStoreException.ProblemSourceType.BlobStorage, e);
-                throw new AzureTableDataStoreException("Insert operation failed, unhandlable exception",
+                throw new AzureTableDataStoreException("Insert operation failed, unhandlable exception: " + e.Message,
                     AzureTableDataStoreException.ProblemSourceType.General, e);
             }
         }
+
+
 
         private async Task UploadBlobAndUpdateReference(ReflectionUtils.PropertyRef<StoredBlob> blobPropRef, string partitionKey, string rowKey)
         {
@@ -299,10 +326,11 @@ namespace AzureTableDataStore
                                blobPropRef.StoredInstance.Filename);
 
             var dataStream = await blobPropRef.StoredInstance.AsyncDataStream.Value;
-            var uploadResponse = await containerClient.UploadBlobAsync(blobPath, dataStream);
+            var blobClient = containerClient.GetBlobClient(blobPath);
+            await blobClient.UploadAsync(dataStream);
             // Should we compare the hashes just in case?
             dataStream.Seek(0, SeekOrigin.Begin);
-            var props = await containerClient.GetBlobClient(blobPath).GetPropertiesAsync();
+            var props = await blobClient.GetPropertiesAsync();
             blobPropRef.StoredInstance.Length = props.Value.ContentLength;
             blobPropRef.StoredInstance.ContentType = props.Value.ContentType;
         }
@@ -318,9 +346,17 @@ namespace AzureTableDataStore
                 filename);
 
             var blobClient = containerClient.GetBlobClient(blobPath);
-            var downloadRequestResult = await blobClient.DownloadAsync();
 
-            return downloadRequestResult.Value.Content;
+            try
+            {
+                var downloadRequestResult = await blobClient.DownloadAsync();
+                return downloadRequestResult.Value.Content;
+            }
+            catch (Exception e)
+            {
+                throw new AzureTableDataStoreException($"Failed to initiate blob download for blob '{blobPath}': " + e.Message, 
+                    AzureTableDataStoreException.ProblemSourceType.BlobStorage, e);
+            }
         }
 
         private async Task InsertBatched(TData[] entries)
@@ -351,9 +387,21 @@ namespace AzureTableDataStore
             var tableRef = GetTable();
             var query = new TableQuery {FilterString = filterString, TakeCount = 1};
 
-            var results = await tableRef.ExecuteQuerySegmentedAsync(query, TransformQueryResult, null);
+            try
+            {
+                var results = await tableRef.ExecuteQuerySegmentedAsync(query, TransformQueryResult, null);
+                return results.Results.First();
+            }
+            catch (StorageException e)
+            {
+                if(e.RequestInformation.HttpStatusCode == 404)
+                    throw new AzureTableDataStoreException($"No matching entity using query '{queryExpression}' was found.",
+                        AzureTableDataStoreException.ProblemSourceType.TableStorage, e);
 
-            return results.Results.FirstOrDefault();
+                throw new AzureTableDataStoreException($"Failed to retrieve entities with query '{queryExpression}': " + e.Message, 
+                    AzureTableDataStoreException.ProblemSourceType.TableStorage, e);
+            }
+            
         }
 
         private TData TransformQueryResult(string partitionKey,

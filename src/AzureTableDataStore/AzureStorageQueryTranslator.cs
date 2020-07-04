@@ -59,6 +59,14 @@ namespace AzureTableDataStore
 
         protected override Expression VisitMethodCall(MethodCallExpression node)
         {
+            // Should perhaps add evaluation for right side values, but this requires a bit of
+            // wrangling since VisitMember/VisitConstant is going to be run first.
+            // Might need to start collecting a node graph for this purpose, and then at the end
+            // serialize the node graph. We'd effectively need to erase the last expression filter output
+            // when we arrive here as this replaces that output.
+
+            // Also need to add a special case for AsComparable() so that when that is used,
+            // we skip this and continue as if there was no method call.
             return base.VisitMethodCall(node);
         }
 

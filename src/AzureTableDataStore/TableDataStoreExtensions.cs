@@ -9,7 +9,7 @@ namespace AzureTableDataStore
         public static ITableDataStore NamedInstance(this IEnumerable<ITableDataStore> stores, string name) 
             => stores.FirstOrDefault(x => x.Name == name);
 
-        public static ITableDataStore<TData> NamedInstance<TData>(this IEnumerable<ITableDataStore<TData>> stores, string name)
+        public static ITableDataStore<TData> NamedInstance<TData>(this IEnumerable<ITableDataStore<TData>> stores, string name) where TData:new()
             => stores.FirstOrDefault(x => x.Name == name);
     }
 }

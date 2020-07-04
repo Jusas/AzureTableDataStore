@@ -10,7 +10,7 @@ namespace AzureTableDataStore
         string Name { get; }
     }
 
-    public interface ITableDataStore<TData> : ITableDataStore
+    public interface ITableDataStore<TData> : ITableDataStore where TData:new()
     {
         Task InsertAsync(params TData[] entries);
         Task UpsertAsync(params TData[] entries);
