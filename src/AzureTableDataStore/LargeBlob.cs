@@ -8,7 +8,7 @@ using Newtonsoft.Json;
 
 namespace AzureTableDataStore
 {
-    public sealed class StoredBlob
+    public sealed class LargeBlob
     {
         [JsonProperty]
         public string Filename { get; internal set; } = "";
@@ -28,25 +28,25 @@ namespace AzureTableDataStore
             return "";
         }
 
-        public StoredBlob()
+        public LargeBlob()
         {
         }
 
-        public StoredBlob(string filename, Stream data)
+        public LargeBlob(string filename, Stream data)
         {
             Filename = filename;
             Length = data.Length;
             AsyncDataStream = new Lazy<Task<Stream>>(() => Task.FromResult(data));
         }
 
-        public StoredBlob(string filename, Func<Task<Stream>> dataFactory)
+        public LargeBlob(string filename, Func<Task<Stream>> dataFactory)
         {
             Filename = filename;
             Length = 0;
             AsyncDataStream = new Lazy<Task<Stream>>(dataFactory);
         }
 
-        internal StoredBlob(BlobClient sourceBlobClient)
+        internal LargeBlob(BlobClient sourceBlobClient)
         {
             
         }
@@ -59,22 +59,22 @@ namespace AzureTableDataStore
 
         //}
 
-        public static StoredBlob FromStream(Stream stream, string filename = null)
+        public static LargeBlob FromStream(Stream stream, string filename = null)
         {
             // todo
-            return new StoredBlob();
+            return new LargeBlob();
         }
 
-        public static StoredBlob FromBytes(byte[] bytes, string filename = null)
+        public static LargeBlob FromBytes(byte[] bytes, string filename = null)
         {
             // todo
-            return new StoredBlob();
+            return new LargeBlob();
         }
 
-        public static StoredBlob FromString(string data, string filename = null)
+        public static LargeBlob FromString(string data, string filename = null)
         {
             // todo
-            return new StoredBlob();
+            return new LargeBlob();
         }
     }
 }

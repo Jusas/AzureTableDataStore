@@ -37,6 +37,8 @@ namespace AzureTableDataStore
         /// <returns></returns>
         internal static long CalculateApproximateEntitySize(params DynamicTableEntity[] entities)
         {
+            if (entities.Length == 0)
+                return 0;
 
             using (var streamWriter = new StreamWriter(new MemoryStream()))
             {
@@ -85,7 +87,7 @@ namespace AzureTableDataStore
 
                         JObject.FromObject(serializedValues, JsonSerializer).WriteTo(jsonWriter);
                     }
-                    streamWriter.Flush();
+                    jsonWriter.Flush();
                     return streamWriter.BaseStream.Length;
                 }
             }
@@ -115,6 +117,23 @@ namespace AzureTableDataStore
             long entityWrappings = entities.Length * 500;
 
             return headerSize + footerSize + entityWrappings + entitiesSize;
+        }
+
+        internal static long CalculateApproximateBatchEntitySize(DynamicTableEntity entity)
+        {
+            long entitiesSize = CalculateApproximateEntitySize(entity);
+            long entityWrappings = 500;
+            return entitiesSize + entityWrappings;
+        }
+
+        internal static long CalculateBase64EncodedSize(byte[] input)
+        {
+            return (long)Math.Ceiling(input.Length  / 3.0M)*4;
+        }
+
+        internal static long CalculateBase64EncodedSize(Stream input)
+        {
+            return (long)Math.Ceiling(input.Length / 3.0M) * 4;
         }
     }
 }

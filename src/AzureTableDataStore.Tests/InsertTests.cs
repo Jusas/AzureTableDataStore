@@ -34,17 +34,48 @@ namespace AzureTableDataStore.Tests
                 Aliases = new List<string>() { "Bill", "Will" },
                 ProfileImagery = new UserProfile.ProfileImages()
                 {
-                    Current = new StoredBlob("image.png", imageStream),
-                    Old = new StoredBlob("older_me.png", imageStream2)
+                    Current = new LargeBlob("image.png", imageStream),
+                    Old = new LargeBlob("older_me.png", imageStream2)
                 }
             };
 
-            await store.InsertAsync(userProfile);
+            await store.InsertAsync(false, userProfile);
+
+
+        }
+
+        [Fact]
+        public async Task Should_insert_a_batch()
+        {
+
+            var testEntities = new List<SecretWeapon>();
+
+            for (var i = 0; i < 105; i++)
+            {
+                testEntities.Add(new SecretWeapon()
+                {
+                    Manufacturer = "MI6 Skunk Works",
+                    ModelId = Guid.NewGuid().ToString(),
+                    Name = $"Walther PPK ({i})",
+                    Type = "Personal Weapon",
+                    Properties = new SecretWeapon.WeaponProperties()
+                    {
+                        Portability = SecretWeapon.WeaponPortability.Portable,
+                        Weight = 1
+                    }
+                });
+            }
+
+
+
+            var store = new TableDataStore<SecretWeapon>("UseDevelopmentStorage=true", "secretweapons",
+                null, PublicAccessType.None, null);
+
+            await store.InsertAsync(true, testEntities.ToArray());
+
+
 
 
         }
     }
 }
-/*
- *  data:image/png;base64,
-*/

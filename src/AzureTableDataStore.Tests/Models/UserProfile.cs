@@ -12,8 +12,8 @@ namespace AzureTableDataStore.Tests.Models
 
         public class ProfileImages
         {
-            public StoredBlob Current { get; set; }
-            public StoredBlob Old { get; set; }
+            public LargeBlob Current { get; set; }
+            public LargeBlob Old { get; set; }
         }
 
         [TableRowKey]

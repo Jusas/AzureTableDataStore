@@ -1,3 +1,4 @@
 - if blob is small enough, insert into table as bytes with additional fields.
-- in mass inserts, batch small (non-blob storage requiring) inserts together for efficiency
+	- this becomes difficult upon updates, as we would need to calculate the size of the entire table entity in order to make decisions. will probably not be worth it.
 - mime type is not recognized correctly
+- implement property selector expressions

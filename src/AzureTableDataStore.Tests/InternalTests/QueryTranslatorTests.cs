@@ -28,8 +28,8 @@ namespace AzureTableDataStore.Tests.InternalTests
                 UserId = "007",
                 ProfileImagery = new UserProfile.ProfileImages()
                 {
-                    Current = new StoredBlob("bond_new.png", new MemoryStream()),
-                    Old = new StoredBlob("bond_old.png", new MemoryStream()),
+                    Current = new LargeBlob("bond_new.png", new MemoryStream()),
+                    Old = new LargeBlob("bond_old.png", new MemoryStream()),
                 }
             };
         }

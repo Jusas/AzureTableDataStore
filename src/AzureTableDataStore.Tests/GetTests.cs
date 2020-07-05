@@ -31,8 +31,8 @@ namespace AzureTableDataStore.Tests
                 UserId = "007",
                 ProfileImagery = new UserProfile.ProfileImages()
                 {
-                    Current = new StoredBlob("bond_new.png", new FileStream("Resources/bond_new.png", FileMode.Open, FileAccess.Read)),
-                    Old = new StoredBlob("bond_old.png", new FileStream("Resources/bond_old.png", FileMode.Open, FileAccess.Read)),
+                    Current = new LargeBlob("bond_new.png", new FileStream("Resources/bond_new.png", FileMode.Open, FileAccess.Read)),
+                    Old = new LargeBlob("bond_old.png", new FileStream("Resources/bond_old.png", FileMode.Open, FileAccess.Read)),
                 }
             };
 
@@ -40,7 +40,7 @@ namespace AzureTableDataStore.Tests
 
             var fetchedRow = await store.GetAsync(x => x.UserId == "007" && x.UserType == "agent");
             byte[] fetchedBytes;
-
+           
             using (var imageDataStream = await fetchedRow.ProfileImagery.Current.AsyncDataStream.Value)
             {
                 using (var reader = new BinaryReader(imageDataStream))

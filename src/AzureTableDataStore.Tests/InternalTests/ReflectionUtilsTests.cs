@@ -12,7 +12,7 @@ namespace AzureTableDataStore.Tests.InternalTests
         public class TableRow
         {
             public string Name { get; set; }
-            public StoredBlob Document { get; set; }
+            public LargeBlob Document { get; set; }
             public Attachment RelatedItem { get; set; }
             public Dictionary<string, int> Dict { get; set; }
         }
@@ -20,7 +20,7 @@ namespace AzureTableDataStore.Tests.InternalTests
         public class Attachment
         {
             public string Name { get; set; }
-            public StoredBlob File { get; set; }
+            public LargeBlob File { get; set; }
             public Attachment NestedAttachment { get; set; }
             public List<string> Keywords { get; set; }
         }
@@ -33,15 +33,15 @@ namespace AzureTableDataStore.Tests.InternalTests
             var testObject = new TableRow()
             {
                 Name = "Outer",
-                Document = StoredBlob.FromString("", "document"),
+                Document = LargeBlob.FromString("", "document"),
                 RelatedItem = new Attachment()
                 {
                     Name = "Att-01",
-                    File = StoredBlob.FromString("", "att01"),
+                    File = LargeBlob.FromString("", "att01"),
                     NestedAttachment = new Attachment()
                     {
                         Name = "Att01-Inner",
-                        File = StoredBlob.FromString("", "att01-inner"),
+                        File = LargeBlob.FromString("", "att01-inner"),
                         NestedAttachment = null
                     }
                 },
@@ -62,15 +62,15 @@ namespace AzureTableDataStore.Tests.InternalTests
             var testObject = new TableRow()
             {
                 Name = "Outer",
-                Document = StoredBlob.FromString("", "document"),
+                Document = LargeBlob.FromString("", "document"),
                 RelatedItem = new Attachment()
                 {
                     Name = "Att-01",
-                    File = StoredBlob.FromString("", "att01"),
+                    File = LargeBlob.FromString("", "att01"),
                     NestedAttachment = new Attachment()
                     {
                         Name = "Att01-Inner",
-                        File = StoredBlob.FromString("", "att01-inner"),
+                        File = LargeBlob.FromString("", "att01-inner"),
                         NestedAttachment = null,
                         Keywords = new List<string>() { "alpha", "bravo" }
                     }

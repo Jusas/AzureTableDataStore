@@ -116,18 +116,18 @@ namespace AzureTableDataStore
                typeof(IList).IsAssignableFrom(propertyInfo.PropertyType);
 
         private static bool IsBlobRefProperty(PropertyInfo propertyInfo)
-            => propertyInfo.PropertyType == typeof(StoredBlob);
+            => propertyInfo.PropertyType == typeof(LargeBlob);
 
 
-        public static List<PropertyRef<StoredBlob>> GatherPropertiesWithBlobsRecursive(object obj, EntityPropertyConverterOptions opts, 
-            List<string> propertyPath = null, List<PropertyRef<StoredBlob>> collectedBlobRefs = null, bool includeNulls = false)
+        public static List<PropertyRef<LargeBlob>> GatherPropertiesWithBlobsRecursive(object obj, EntityPropertyConverterOptions opts, 
+            List<string> propertyPath = null, List<PropertyRef<LargeBlob>> collectedBlobRefs = null, bool includeNulls = false)
         {
             
             if(propertyPath == null)
                 propertyPath = new List<string>();
 
             if(collectedBlobRefs == null)
-                collectedBlobRefs = new List<PropertyRef<StoredBlob>>();
+                collectedBlobRefs = new List<PropertyRef<LargeBlob>>();
 
             if (obj == null)
                 return collectedBlobRefs;
@@ -136,9 +136,9 @@ namespace AzureTableDataStore
             var properties = objType.GetProperties(BindingFlags.Instance | BindingFlags.Public);
             var blobProps = properties.Where(IsBlobRefProperty);
 
-            var thisObjBlobPropRefs = blobProps.Select(x => new PropertyRef<StoredBlob>()
+            var thisObjBlobPropRefs = blobProps.Select(x => new PropertyRef<LargeBlob>()
             {
-                StoredInstance = (StoredBlob)x.GetValue(obj),
+                StoredInstance = (LargeBlob)x.GetValue(obj),
                 FlattenedPropertyName = string.Join(opts.PropertyNameDelimiter, propertyPath.Append(x.Name)),
                 SourceObject = obj,
                 SourceObjectType = objType,
@@ -162,21 +162,21 @@ namespace AzureTableDataStore
             return collectedBlobRefs;
         }
 
-        public static List<PropertyRef<StoredBlob>> GatherPropertiesWithBlobsRecursive(Type type, EntityPropertyConverterOptions opts,
-            List<string> propertyPath = null, List<PropertyRef<StoredBlob>> collectedBlobRefs = null)
+        public static List<PropertyRef<LargeBlob>> GatherPropertiesWithBlobsRecursive(Type type, EntityPropertyConverterOptions opts,
+            List<string> propertyPath = null, List<PropertyRef<LargeBlob>> collectedBlobRefs = null)
         {
 
             if (propertyPath == null)
                 propertyPath = new List<string>();
 
             if (collectedBlobRefs == null)
-                collectedBlobRefs = new List<PropertyRef<StoredBlob>>();
+                collectedBlobRefs = new List<PropertyRef<LargeBlob>>();
 
             var objType = type;
             var properties = objType.GetProperties(BindingFlags.Instance | BindingFlags.Public);
             var blobProps = properties.Where(IsBlobRefProperty);
 
-            var thisObjBlobPropRefs = blobProps.Select(x => new PropertyRef<StoredBlob>()
+            var thisObjBlobPropRefs = blobProps.Select(x => new PropertyRef<LargeBlob>()
             {
                 StoredInstance = null,
                 FlattenedPropertyName = string.Join(opts.PropertyNameDelimiter, propertyPath.Append(x.Name)),
