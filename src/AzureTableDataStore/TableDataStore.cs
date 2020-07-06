@@ -548,11 +548,11 @@ namespace AzureTableDataStore
                 switch (entities.Length)
                 {
                     case 1:
-                        await MergeOneAsync(mergedPropertyNames, entities.First());
+                        await MergeOneAsync(mergedPropertyNames, new DataStoreEntity<TData>("*", entities.First()));
                         break;
                     default:
-                        if (useBatching) await MergeBatchedAsync(mergedPropertyNames, entities);
-                        else await MergeMultipleAsync(mergedPropertyNames, entities);
+                        if (useBatching) await MergeBatchedAsync(mergedPropertyNames, entities.Select(x => new DataStoreEntity<TData>("*", x)).ToArray());
+                        else await MergeMultipleAsync(mergedPropertyNames, entities.Select(x => new DataStoreEntity<TData>("*", x)).ToArray());
                         return;
                 }
             }
@@ -568,12 +568,12 @@ namespace AzureTableDataStore
 
         }
 
-        private async Task MergeOneAsync(List<string> propertyNames, TData entity)
+        private async Task MergeOneAsync(List<string> propertyNames, DataStoreEntity<TData> entity)
         {
             try
             {
-                var entityKeys = GetEntityKeys(entity);
-                var entityData = ExtractEntityProperties(entity);
+                var entityKeys = GetEntityKeys(entity.Value);
+                var entityData = ExtractEntityProperties(entity.Value);
                 var tableRef = GetTable();
 
                 var blobPropertiesToUpdate = entityData.BlobPropertyRefs
@@ -630,7 +630,7 @@ namespace AzureTableDataStore
                     selectedPropertyValues.Add(propertyName, property);
                 }
 
-                var tableEntity = new DynamicTableEntity(entityKeys.partitionKey, entityKeys.rowKey, "*",
+                var tableEntity = new DynamicTableEntity(entityKeys.partitionKey, entityKeys.rowKey, entity.ETag,
                     selectedPropertyValues);
 
                 var mergeOp = TableOperation.Merge(tableEntity);
@@ -649,7 +649,7 @@ namespace AzureTableDataStore
             }
         }
 
-        private async Task MergeMultipleAsync(List<string> propertyNames, TData[] entities)
+        private async Task MergeMultipleAsync(List<string> propertyNames, DataStoreEntity<TData>[] entities)
         {
             var failedEntities = new ConcurrentDictionary<TData, Exception>();
 
@@ -668,7 +668,7 @@ namespace AzureTableDataStore
                     }
                     catch (Exception e)
                     {
-                        failedEntities.TryAdd(x, e);
+                        failedEntities.TryAdd(x.Value, e);
                     }
                 });
                 await Task.WhenAll(merges);
@@ -685,7 +685,7 @@ namespace AzureTableDataStore
 
         }
 
-        private async Task MergeBatchedAsync(List<string> propertyNames, TData[] entities)
+        private async Task MergeBatchedAsync(List<string> propertyNames, DataStoreEntity<TData>[] entities)
         {
 
             // Form batches of the data to insert.
@@ -696,7 +696,7 @@ namespace AzureTableDataStore
 
             const long maxBatchSize = 4_000_000;
             
-            var entityPartitionGroups = entities.GroupBy(x => _entityTypePartitionKeyPropertyInfo.GetValue(x))
+            var entityPartitionGroups = entities.GroupBy(x => _entityTypePartitionKeyPropertyInfo.GetValue(x.Value))
                 .ToDictionary(x => x.Key, x => x.ToList());
 
             var entityBatches = new List<List<DynamicTableEntity>>();
@@ -710,8 +710,8 @@ namespace AzureTableDataStore
 
                 foreach (var entity in group.Value)
                 {
-                    var entityKeys = GetEntityKeys(entity);
-                    var entityData = ExtractEntityProperties(entity);
+                    var entityKeys = GetEntityKeys(entity.Value);
+                    var entityData = ExtractEntityProperties(entity.Value);
 
                     if (!haveCheckedForBlobProperties)
                     {
@@ -741,7 +741,7 @@ namespace AzureTableDataStore
                     {
                         PartitionKey = entityKeys.partitionKey,
                         RowKey = entityKeys.rowKey,
-                        ETag = "*",
+                        ETag = entity.ETag,
                         Properties = selectedPropertyValues
                     };
 
@@ -894,8 +894,17 @@ namespace AzureTableDataStore
 
         private async Task<DataStoreEntity<TData>> GetWithMetadataAsyncInternal(Expression queryExpression)
         {
-            var filterString = AzureStorageQueryTranslator.TranslateExpression(queryExpression,
-                _configuration.PartitionKeyProperty, _configuration.RowKeyProperty, EntityPropertyConverterOptions);
+            string filterString;
+            try
+            {
+                filterString = AzureStorageQueryTranslator.TranslateExpression(queryExpression,
+                    _configuration.PartitionKeyProperty, _configuration.RowKeyProperty, EntityPropertyConverterOptions);
+            }
+            catch (Exception e)
+            {
+                throw new AzureTableDataStoreException("Failed to translate expression into a query: " + e.Message,
+                    AzureTableDataStoreException.ProblemSourceType.Data, e);
+            }
 
             var tableRef = GetTable();
             var query = new TableQuery { FilterString = filterString, TakeCount = 1 };
