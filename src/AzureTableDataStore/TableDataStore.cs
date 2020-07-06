@@ -44,7 +44,22 @@ namespace AzureTableDataStore
         private PropertyInfo _entityTypeRowKeyPropertyInfo;
         private PropertyInfo _entityTypePartitionKeyPropertyInfo;
 
-        public EntityPropertyConverterOptions EntityPropertyConverterOptions { get; set; } = new EntityPropertyConverterOptions();
+        private IReadOnlyCollection<ReflectionUtils.PropertyRef<LargeBlob>> _dataTypeLargeBlobRefs;
+        private IReadOnlyCollection<ReflectionUtils.PropertyRef<ICollection>> _dataTypeCollectionRefs;
+
+        private EntityPropertyConverterOptions _entityPropertyConverterOptions;
+        public EntityPropertyConverterOptions EntityPropertyConverterOptions
+        {
+            get => _entityPropertyConverterOptions;
+            set
+            {
+                _entityPropertyConverterOptions = value;
+                _dataTypeLargeBlobRefs =
+                    ReflectionUtils.GatherPropertiesWithBlobsRecursive(typeof(TData), _entityPropertyConverterOptions);
+                _dataTypeCollectionRefs =
+                    ReflectionUtils.GatherPropertiesWithCollectionsRecursive(typeof(TData), _entityPropertyConverterOptions);
+            }
+        }
 
 
         public TableDataStore(string tableStorageConnectionString, string tableName, string blobContainerName, PublicAccessType blobContainerAccessType,
@@ -88,6 +103,8 @@ namespace AzureTableDataStore
         {
             _entityTypeRowKeyPropertyInfo = typeof(TData).GetProperty(_configuration.RowKeyProperty);
             _entityTypePartitionKeyPropertyInfo = typeof(TData).GetProperty(_configuration.PartitionKeyProperty);
+
+            EntityPropertyConverterOptions = new EntityPropertyConverterOptions();
         }
 
         private string ResolvePartitionKeyProperty(string inputPartitionKeyProperty)
@@ -399,7 +416,7 @@ namespace AzureTableDataStore
 
             const long maxBatchSize = 4_000_000;
 
-            var blobProperties = ReflectionUtils.GatherPropertiesWithBlobsRecursive(typeof(TData), EntityPropertyConverterOptions);
+            var blobProperties = _dataTypeLargeBlobRefs;
             if (blobProperties.Any())
                 throw new AzureTableDataStoreException("Batched inserts are not supported for entity types with LargeBlob properties due to the " +
                     "transactional nature of Table batch inserts. Please set the useBatching parameter to false.",
@@ -966,11 +983,8 @@ namespace AzureTableDataStore
             properties.Add(_configuration.RowKeyProperty, EntityProperty.CreateEntityPropertyFromObject(rowKey));
             properties.Add(_configuration.PartitionKeyProperty, EntityProperty.CreateEntityPropertyFromObject(partitionKey));
 
-            // TODO move these outside, to not repeat this for every result
-            var blobRefProperties =
-                ReflectionUtils.GatherPropertiesWithBlobsRecursive(typeof(TData), EntityPropertyConverterOptions);
-            var collRefProperties =
-                ReflectionUtils.GatherPropertiesWithCollectionsRecursive(typeof(TData), EntityPropertyConverterOptions);
+            var blobRefProperties = _dataTypeLargeBlobRefs;
+            var collRefProperties = _dataTypeCollectionRefs;
 
             var blobRefPropertyValues = new Dictionary<string, string>();
             var collRefPropertyValues = new Dictionary<string, string>();

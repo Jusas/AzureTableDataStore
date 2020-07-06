@@ -2,3 +2,4 @@ src/.vs/
 bin/
 obj/
 .vs/
+src/AzureTableDataStore/AzureTableDataStore.xml
