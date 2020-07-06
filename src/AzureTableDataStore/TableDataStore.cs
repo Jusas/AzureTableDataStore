@@ -1,27 +1,26 @@
-﻿using System;
+﻿using Azure.Storage;
+using Azure.Storage.Blobs;
+using Azure.Storage.Blobs.Models;
+using Microsoft.Azure.Cosmos.Table;
+using Newtonsoft.Json;
+using System;
 using System.Collections;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Linq.Expressions;
-using System.Net;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Runtime.Serialization;
 using System.Threading.Tasks;
-using Azure.Storage;
-using Azure.Storage.Blobs;
-using Azure.Storage.Blobs.Models;
-using Microsoft.Azure.Cosmos.Table;
-using Newtonsoft.Json;
 
 [assembly: InternalsVisibleTo("AzureTableDataStore.Tests")]
 
 namespace AzureTableDataStore
 {
     /// <inheritdoc cref="ITableDataStore{TData}"/>
-    public class TableDataStore<TData> : ITableDataStore<TData> where TData:new()
+    public class TableDataStore<TData> : ITableDataStore<TData> where TData : new()
     {
         private class Configuration
         {
@@ -52,8 +51,8 @@ namespace AzureTableDataStore
             string blobStorageConnectionString = null, string storeName = null, string partitionKeyProperty = null, string rowKeyProperty = null)
         {
             Name = storeName ?? "default";
-            
-            
+
+
             _cloudStorageAccount = CloudStorageAccount.Parse(tableStorageConnectionString);
             _blobServiceClient = new BlobServiceClient(blobStorageConnectionString ?? tableStorageConnectionString);
             _configuration = new Configuration()
@@ -97,8 +96,8 @@ namespace AzureTableDataStore
             var properties = entryType.GetProperties(BindingFlags.Instance | BindingFlags.Public);
 
             if (!string.IsNullOrEmpty(inputPartitionKeyProperty))
-            {    
-                if(properties.All(x => x.Name != inputPartitionKeyProperty))
+            {
+                if (properties.All(x => x.Name != inputPartitionKeyProperty))
                     throw new AzureTableDataStoreException($"Given partition key property name '{inputPartitionKeyProperty}' " +
                         $"is not a property in the data type '{entryType.Name}', please specify a valid property to act as partition key!",
                         AzureTableDataStoreException.ProblemSourceType.Configuration);
@@ -139,10 +138,11 @@ namespace AzureTableDataStore
                 $"no property with the '{nameof(TableRowKeyAttribute)}' attribute.");
         }
 
-        private (string partitionKey, string rowKey) GetEntityKeys(TData entry) =>
-            (_entityTypePartitionKeyPropertyInfo.GetValue(entry).ToString(), _entityTypeRowKeyPropertyInfo.GetValue(entry).ToString());
+        private (string partitionKey, string rowKey) GetEntityKeys(TData entry)
+        {
+            return (_entityTypePartitionKeyPropertyInfo.GetValue(entry).ToString(), _entityTypeRowKeyPropertyInfo.GetValue(entry).ToString());
+        }
 
-        
         public async Task InsertAsync(bool useBatching, params TData[] entities)
         {
             switch (entities?.Length)
@@ -204,7 +204,7 @@ namespace AzureTableDataStore
                     throw new AzureTableDataStoreException("Unable to initialize table (CreateIfNotExists): " + e.Message,
                         AzureTableDataStoreException.ProblemSourceType.TableStorage, e);
                 }
-                
+
             }
 
             return _cloudStorageAccount.CreateCloudTableClient()
@@ -278,7 +278,7 @@ namespace AzureTableDataStore
                     entityData.PropertyDictionary);
 
                 var insertOp = TableOperation.Insert(tableEntity);
-                if(allowReplace)
+                if (allowReplace)
                     insertOp = TableOperation.InsertOrReplace(tableEntity);
 
                 await tableRef.ExecuteAsync(insertOp);
@@ -347,7 +347,7 @@ namespace AzureTableDataStore
             }
             catch (Exception e)
             {
-                throw new AzureTableDataStoreException($"Failed to initiate blob download for blob '{blobPath}': " + e.Message, 
+                throw new AzureTableDataStoreException($"Failed to initiate blob download for blob '{blobPath}': " + e.Message,
                     AzureTableDataStoreException.ProblemSourceType.BlobStorage, e);
             }
         }
@@ -357,7 +357,7 @@ namespace AzureTableDataStore
             var failedEntries = new ConcurrentDictionary<TData, Exception>();
 
             // TODO any nice way to figure out a proper number of async calls?
-            
+
             // Run multiple concurrent inserts
             var batches = entities.SplitToBatches(25).ToList();
 
@@ -385,7 +385,7 @@ namespace AzureTableDataStore
                 exception.EntityErrors = failedEntries.ToDictionary(x => (object)x.Key, x => x.Value);
                 throw exception;
             }
-            
+
 
         }
 
@@ -400,9 +400,9 @@ namespace AzureTableDataStore
             const long maxBatchSize = 4_000_000;
 
             var blobProperties = ReflectionUtils.GatherPropertiesWithBlobsRecursive(typeof(TData), EntityPropertyConverterOptions);
-            if(blobProperties.Any())
+            if (blobProperties.Any())
                 throw new AzureTableDataStoreException("Batched inserts are not supported for entity types with LargeBlob properties due to the " +
-                    "transactional nature of Table batch inserts. Please set the useBatching parameter to false.", 
+                    "transactional nature of Table batch inserts. Please set the useBatching parameter to false.",
                     AzureTableDataStoreException.ProblemSourceType.Data);
 
             var entityPartitionGroups = entities.GroupBy(x => _entityTypePartitionKeyPropertyInfo.GetValue(x))
@@ -420,7 +420,7 @@ namespace AzureTableDataStore
                 {
                     var collectionPropertyRefs =
                         ReflectionUtils.GatherPropertiesWithCollectionsRecursive(entity, EntityPropertyConverterOptions);
-                    
+
                     var entityKeys = GetEntityKeys(entity);
 
                     StripSpeciallyHandledProperties(collectionPropertyRefs);
@@ -450,7 +450,7 @@ namespace AzureTableDataStore
                     }
                     else
                     {
-                        entityBatch = new List<DynamicTableEntity> {tableEntity};
+                        entityBatch = new List<DynamicTableEntity> { tableEntity };
                         entityBatches.Add(entityBatch);
                         batchSize = SerializationUtils.CalculateApproximateEntitySize(tableEntity);
                     }
@@ -480,7 +480,7 @@ namespace AzureTableDataStore
                 throw new AzureTableDataStoreException($"Batch insert failed: " + e.Message,
                     AzureTableDataStoreException.ProblemSourceType.General, e);
             }
-            
+
         }
 
         public async Task InsertOrReplaceAsync(bool useBatching, params TData[] entities)
@@ -562,7 +562,7 @@ namespace AzureTableDataStore
             }
             catch (Exception e)
             {
-                throw new AzureTableDataStoreException("Merge operation(s) failed: " + e.Message, 
+                throw new AzureTableDataStoreException("Merge operation(s) failed: " + e.Message,
                     AzureTableDataStoreException.ProblemSourceType.General, e);
             }
 
@@ -608,7 +608,7 @@ namespace AzureTableDataStore
                                 AzureTableDataStoreException.ProblemSourceType.TableStorage, e);
                         }
                     }
-                    
+
                     var uploadTasks = blobPropertiesToUpdate
                         .Select(x => UploadBlobAndUpdateReference(x, entityKeys.partitionKey, entityKeys.rowKey)).ToArray();
                     await Task.WhenAll(uploadTasks);
@@ -634,7 +634,7 @@ namespace AzureTableDataStore
                     selectedPropertyValues);
 
                 var mergeOp = TableOperation.Merge(tableEntity);
-                
+
                 await tableRef.ExecuteAsync(mergeOp);
 
             }
@@ -695,7 +695,7 @@ namespace AzureTableDataStore
             // - A batch may not exceed 4MB
 
             const long maxBatchSize = 4_000_000;
-            
+
             var entityPartitionGroups = entities.GroupBy(x => _entityTypePartitionKeyPropertyInfo.GetValue(x.Value))
                 .ToDictionary(x => x.Key, x => x.ToList());
 
@@ -845,7 +845,7 @@ namespace AzureTableDataStore
             return (propertyDictionary, blobPropertyRefs, collectionPropertyRefs);
         }
 
-        // todo only get specified fields if provided
+
         public async Task<TData> GetAsync(Expression<Func<TData, bool>> queryExpression, Expression<Func<TData, object>> selectExpression = null)
         {
             var result = await FindWithMetadataAsyncInternal(queryExpression, selectExpression, 1);
@@ -896,7 +896,7 @@ namespace AzureTableDataStore
             {
                 TableContinuationToken token = null;
                 var foundEntities = new List<DataStoreEntity<TData>>();
-                
+
                 do
                 {
                     var results = await tableRef.ExecuteQuerySegmentedAsync(query, TransformQueryResult, token);
@@ -990,9 +990,9 @@ namespace AzureTableDataStore
                     properties[@ref.FlattenedPropertyName].StringValue);
                 properties.Remove(@ref.FlattenedPropertyName);
             }
-            
+
             var converted = EntityPropertyConverter.ConvertBack<TData>(properties, EntityPropertyConverterOptions, null);
-            
+
             var convertedObjectBlobPropRefs = ReflectionUtils.GatherPropertiesWithBlobsRecursive(converted, EntityPropertyConverterOptions,
                 includeNulls: true);
             var convertedObjectCollPropRefs = ReflectionUtils.GatherPropertiesWithCollectionsRecursive(converted, EntityPropertyConverterOptions,
@@ -1036,10 +1036,10 @@ namespace AzureTableDataStore
         private object CreateObjectHierarchyForProperty(object rootObject, string flattenedPropName)
         {
             var propertyPath = flattenedPropName.Split(
-                new string[] {EntityPropertyConverterOptions.PropertyNameDelimiter}, StringSplitOptions.None);
+                new string[] { EntityPropertyConverterOptions.PropertyNameDelimiter }, StringSplitOptions.None);
 
             object current = rootObject;
-            for (var i = 0; i < propertyPath.Length-1; i++)
+            for (var i = 0; i < propertyPath.Length - 1; i++)
             {
                 var property = current.GetType().GetProperty(propertyPath[i], BindingFlags.Instance | BindingFlags.Public);
                 var propertyValue = property.GetValue(current);
