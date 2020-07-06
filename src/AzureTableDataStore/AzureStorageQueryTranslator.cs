@@ -11,7 +11,7 @@ namespace AzureTableDataStore
     internal class AzureStorageQueryTranslator : ExpressionVisitor
     {
         private StringBuilder Filter = new StringBuilder();
-        private static EntityPropertyConverterOptions Options = new EntityPropertyConverterOptions() { PropertyNameDelimiter = "_" };
+        private EntityPropertyConverterOptions _options = new EntityPropertyConverterOptions();
 
         private string _partitionKeyProperty;
         private string _rowKeyProperty;
@@ -34,19 +34,15 @@ namespace AzureTableDataStore
             _rowKeyProperty = rowKeyProperty;
         }
 
-        public static void UseConverterOptions(EntityPropertyConverterOptions options)
-        {
-            Options = options;
-        }
-
         private bool IsNullConstant(Expression exp)
         {
             return (exp.NodeType == ExpressionType.Constant && ((ConstantExpression)exp).Value == null);
         }
 
-        public static string TranslateExpression(Expression e, string partitionKeyProperty, string rowKeyProperty)
+        public static string TranslateExpression(Expression e, string partitionKeyProperty, string rowKeyProperty, EntityPropertyConverterOptions options)
         {
             var translator = new AzureStorageQueryTranslator(partitionKeyProperty, rowKeyProperty);
+            translator._options = options;
             translator.Visit(e);
 
             return translator.Filter.ToString();
@@ -85,7 +81,6 @@ namespace AzureTableDataStore
 
         protected override Expression VisitMember(MemberExpression m)
         {
-            // TODO: When on the right side, we should be getting the value of the MemberExpression
 
             if (m.Expression != null && m.Expression.NodeType == ExpressionType.Parameter && _binarySideStack.Peek() != BinarySide.Right)
             {
@@ -103,7 +98,7 @@ namespace AzureTableDataStore
                 _memberDepth++;
                 MemberExpression innerExpression = m.Expression as MemberExpression;
                 VisitMember(innerExpression);
-                Filter.Append(Options.PropertyNameDelimiter + m.Member.Name);
+                Filter.Append(_options.PropertyNameDelimiter + m.Member.Name);
                 _memberDepth--;
                 return m;
             }

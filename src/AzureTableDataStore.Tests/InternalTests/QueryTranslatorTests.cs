@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq.Expressions;
 using AzureTableDataStore.Tests.Models;
 using FluentAssertions;
+using Microsoft.Azure.Cosmos.Table;
 using Xunit;
 
 namespace AzureTableDataStore.Tests.InternalTests
@@ -12,6 +13,7 @@ namespace AzureTableDataStore.Tests.InternalTests
     {
 
         private UserProfile _sourceObject;
+        private EntityPropertyConverterOptions _entityPropertyConverterOptions = new EntityPropertyConverterOptions();
         public QueryTranslatorTests()
         {
             _sourceObject = new UserProfile()
@@ -58,7 +60,7 @@ namespace AzureTableDataStore.Tests.InternalTests
             for (var i = 0; i < expressions.Length; i++)
             {
                 var translated = AzureStorageQueryTranslator
-                    .TranslateExpression(expressions[i], "", "");
+                    .TranslateExpression(expressions[i], "", "", _entityPropertyConverterOptions);
                 translated.Should().Be(expectedResults[i]);
             }
 
@@ -86,7 +88,7 @@ namespace AzureTableDataStore.Tests.InternalTests
             for (var i = 0; i < expressions.Length; i++)
             {
                 var translated = AzureStorageQueryTranslator
-                    .TranslateExpression(expressions[i], "", "");
+                    .TranslateExpression(expressions[i], "", "", _entityPropertyConverterOptions);
                 translated.Should().Be(expectedResults[i]);
             }
 
@@ -114,7 +116,7 @@ namespace AzureTableDataStore.Tests.InternalTests
             for (var i = 0; i < expressions.Length; i++)
             {
                 var translated = AzureStorageQueryTranslator
-                    .TranslateExpression(expressions[i], "", "");
+                    .TranslateExpression(expressions[i], "", "", _entityPropertyConverterOptions);
                 translated.Should().Be(expectedResults[i]);
             }
 
@@ -153,10 +155,54 @@ namespace AzureTableDataStore.Tests.InternalTests
             for (var i = 0; i < expressions.Length; i++)
             {
                 var translated = AzureStorageQueryTranslator
-                    .TranslateExpression(expressions[i], "", "");
+                    .TranslateExpression(expressions[i], "", "", _entityPropertyConverterOptions);
                 translated.Should().Be(expectedResults[i]);
             }
 
+        }
+
+        [Fact]
+        public void Should_translate_select_expression()
+        {
+
+            Expression<Func<UserProfile, object>> expression = profile =>
+                new {profile.Name, profile.Age, profile.ExtendedProperties.HasVisitedBefore};
+
+            var expectedResults = new List<string>()
+            {
+                "Name",
+                "Age",
+                "ExtendedProperties_HasVisitedBefore"
+            };
+
+            var translated = AzureStorageQuerySelectTranslator.TranslateExpressionToMemberNames(expression,
+                _entityPropertyConverterOptions);
+
+            for (var i = 0; i < translated.Count; i++)
+            {
+                translated[i].Should().Be(expectedResults[i]);
+            }
+        }        
+        
+        [Fact]
+        public void Should_translate_deeply_nested_select_expression()
+        {
+
+            Expression<Func<DeepStructuredObject, object>> expression = d =>
+                new {d.Level0.Level1.Level2.FinalProperty};
+
+            var expectedResults = new List<string>()
+            {
+                "Level0_Level1_Level2_FinalProperty"
+            };
+
+            var translated = AzureStorageQuerySelectTranslator.TranslateExpressionToMemberNames(expression,
+                _entityPropertyConverterOptions);
+
+            for (var i = 0; i < translated.Count; i++)
+            {
+                translated[i].Should().Be(expectedResults[i]);
+            }
         }
     }
 }

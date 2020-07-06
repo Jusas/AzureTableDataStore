@@ -481,7 +481,7 @@ namespace AzureTableDataStore
         public async Task<TData> GetAsync(Expression<Func<TData, bool>> queryExpression)
         {
             var filterString = AzureStorageQueryTranslator.TranslateExpression(queryExpression, 
-                _configuration.PartitionKeyProperty, _configuration.RowKeyProperty);
+                _configuration.PartitionKeyProperty, _configuration.RowKeyProperty, EntityPropertyConverterOptions);
 
             var tableRef = GetTable();
             var query = new TableQuery {FilterString = filterString, TakeCount = 1};
