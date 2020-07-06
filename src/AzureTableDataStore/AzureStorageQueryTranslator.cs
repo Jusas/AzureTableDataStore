@@ -63,6 +63,10 @@ namespace AzureTableDataStore
 
             // Also need to add a special case for AsComparable() so that when that is used,
             // we skip this and continue as if there was no method call.
+            //var lambda = Expression.Lambda(node, _nodeParameters);
+            //var getter = lambda.Compile();
+            //getter.
+            
             return base.VisitMethodCall(node);
         }
 
@@ -122,7 +126,7 @@ namespace AzureTableDataStore
             switch (Type.GetTypeCode(value.GetType()))
             {
                 case TypeCode.DateTime:
-                    return $"datetime'{((DateTime)value):yyyy-MM-ddThh:mm}'";
+                    return $"datetime'{((DateTime)value):o}'";
                 case TypeCode.String:
                     return $"'{value.ToString().Replace("'", "''")}'";
                 case TypeCode.Boolean:
@@ -178,6 +182,15 @@ namespace AzureTableDataStore
             }
             
             return base.VisitUnary(node);
+        }
+
+        protected override Expression VisitParameter(ParameterExpression node)
+        {
+
+            if (node.Type == typeof(DateTimeOffset) && _binarySideStack.Peek() == BinarySide.Left)
+                Filter.Append("Timestamp");
+
+            return base.VisitParameter(node);
         }
 
         protected override Expression VisitBinary(BinaryExpression node)

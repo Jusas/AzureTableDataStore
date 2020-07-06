@@ -1,4 +1,6 @@
 ﻿using System;
+using System.Collections;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -18,6 +20,7 @@ using Newtonsoft.Json;
 
 namespace AzureTableDataStore
 {
+    /// <inheritdoc cref="ITableDataStore"/>
     public class TableDataStore<TData> : ITableDataStore<TData> where TData:new()
     {
         private class Configuration
@@ -139,18 +142,19 @@ namespace AzureTableDataStore
         private (string partitionKey, string rowKey) GetEntityKeys(TData entry) =>
             (_entityTypePartitionKeyPropertyInfo.GetValue(entry).ToString(), _entityTypeRowKeyPropertyInfo.GetValue(entry).ToString());
 
-        public async Task InsertAsync(bool useBatching, params TData[] entries)
+        
+        public async Task InsertAsync(bool useBatching, params TData[] entities)
         {
-            switch (entries?.Length)
+            switch (entities?.Length)
             {
                 case 0:
                     return;
                 case 1:
-                    await InsertOneAsync(entries[0]);
+                    await InsertOneAsync(entities[0], false);
                     break;
                 default:
-                    if (useBatching) await InsertBatched(entries);
-                    else await InsertMultiple(entries);
+                    if (useBatching) await InsertBatchedAsync(entities, false);
+                    else await InsertMultipleAsync(entities, false);
                     return;
             }
         }
@@ -170,7 +174,7 @@ namespace AzureTableDataStore
                     }
                     catch (Exception e)
                     {
-                        throw new AzureTableDataStoreException("Unable to initialize blob container (CreateIfNotExists)",
+                        throw new AzureTableDataStoreException("Unable to initialize blob container (CreateIfNotExists): " + e.Message,
                             AzureTableDataStoreException.ProblemSourceType.BlobStorage, e);
                     }
                 }
@@ -197,7 +201,7 @@ namespace AzureTableDataStore
                 }
                 catch (Exception e)
                 {
-                    throw new AzureTableDataStoreException("Unable to initialize table (CreateIfNotExists)",
+                    throw new AzureTableDataStoreException("Unable to initialize table (CreateIfNotExists): " + e.Message,
                         AzureTableDataStoreException.ProblemSourceType.TableStorage, e);
                 }
                 
@@ -227,37 +231,24 @@ namespace AzureTableDataStore
         }
 
 
-        private async Task InsertOneAsync(TData entity)
+        private async Task InsertOneAsync(TData entity, bool allowReplace)
         {
             try
             {
-                var blobPropertyRefs =
-                    ReflectionUtils.GatherPropertiesWithBlobsRecursive(entity, EntityPropertyConverterOptions);
-                var collectionPropertyRefs =
-                    ReflectionUtils.GatherPropertiesWithCollectionsRecursive(entity, EntityPropertyConverterOptions);
-                var allSpecialPropertyRefs = blobPropertyRefs.Cast<ReflectionUtils.PropertyRef>()
-                    .Concat(collectionPropertyRefs).ToList();
-
-                StripSpeciallyHandledProperties(allSpecialPropertyRefs);
-                var propertyDictionary = EntityPropertyConverter.Flatten(entity, EntityPropertyConverterOptions, null);
-
-                propertyDictionary.Remove(_configuration.RowKeyProperty);
-                propertyDictionary.Remove(_configuration.PartitionKeyProperty);
-
-                var entryKeys = GetEntityKeys(entity);
-
+                var entityData = ExtractEntityProperties(entity);
+                var entityKeys = GetEntityKeys(entity);
                 var tableRef = GetTable();
 
                 // Check if the row already exists if we have blobs to upload - we don't want to upload them
                 // if the table insert itself may fail.
-                if (blobPropertyRefs.Any())
+                if (entityData.BlobPropertyRefs.Any())
                 {
-                    TableOperation existsOp = TableOperation.Retrieve(entryKeys.partitionKey, entryKeys.rowKey, new List<string>());
+                    TableOperation existsOp = TableOperation.Retrieve(entityKeys.partitionKey, entityKeys.rowKey, new List<string>());
                     try
                     {
                         await tableRef.ExecuteAsync(existsOp);
                         throw new AzureTableDataStoreException("Entity with partition key " +
-                            $"'{entryKeys.partitionKey}', row key '{entryKeys.rowKey}' already exists, cannot insert.",
+                            $"'{entityKeys.partitionKey}', row key '{entityKeys.rowKey}' already exists, cannot insert.",
                             AzureTableDataStoreException.ProblemSourceType.TableStorage);
                     }
                     catch (StorageException e)
@@ -265,30 +256,31 @@ namespace AzureTableDataStore
                         if (e.RequestInformation.HttpStatusCode != 404)
                         {
                             throw new AzureTableDataStoreException("Failed to check if entity exists with partition key " +
-                                $"'{entryKeys.partitionKey}', row key '{entryKeys.rowKey}'", 
+                                $"'{entityKeys.partitionKey}', row key '{entityKeys.rowKey}'",
                                 AzureTableDataStoreException.ProblemSourceType.TableStorage, e);
                         }
                     }
                 }
-                
-                var uploadTasks = blobPropertyRefs
-                    .Select(x => UploadBlobAndUpdateReference(x, entryKeys.partitionKey, entryKeys.rowKey)).ToArray();
+
+                var uploadTasks = entityData.BlobPropertyRefs
+                    .Select(x => UploadBlobAndUpdateReference(x, entityKeys.partitionKey, entityKeys.rowKey)).ToArray();
                 await Task.WhenAll(uploadTasks);
 
-                collectionPropertyRefs.ForEach(@ref =>
-                    propertyDictionary.Add(@ref.FlattenedPropertyName, EntityProperty.GeneratePropertyForString(
+                entityData.CollectionPropertyRefs.ForEach(@ref =>
+                    entityData.PropertyDictionary.Add(@ref.FlattenedPropertyName, EntityProperty.GeneratePropertyForString(
                         JsonConvert.SerializeObject(@ref.StoredInstance, _jsonSerializerSettings))));
 
-                blobPropertyRefs.ForEach(@ref =>
-                    propertyDictionary.Add(@ref.FlattenedPropertyName, EntityProperty.GeneratePropertyForString(
+                entityData.BlobPropertyRefs.ForEach(@ref =>
+                    entityData.PropertyDictionary.Add(@ref.FlattenedPropertyName, EntityProperty.GeneratePropertyForString(
                         JsonConvert.SerializeObject(@ref.StoredInstance, _jsonSerializerSettings))));
 
-                RestoreSpeciallyHandledProperties(allSpecialPropertyRefs);
-
-                var tableEntity = new DynamicTableEntity(entryKeys.partitionKey, entryKeys.rowKey, "*",
-                    propertyDictionary);
+                var tableEntity = new DynamicTableEntity(entityKeys.partitionKey, entityKeys.rowKey, "*",
+                    entityData.PropertyDictionary);
 
                 var insertOp = TableOperation.Insert(tableEntity);
+                if(allowReplace)
+                    insertOp = TableOperation.InsertOrReplace(tableEntity);
+
                 await tableRef.ExecuteAsync(insertOp);
 
             }
@@ -298,16 +290,16 @@ namespace AzureTableDataStore
             }
             catch (SerializationException e)
             {
-                throw new AzureTableDataStoreException("Serialization of the data failed", 
+                throw new AzureTableDataStoreException("Serialization of the data failed: " + e.Message,
                     AzureTableDataStoreException.ProblemSourceType.Data, e);
             }
             catch (Exception e)
             {
-                if(e.GetType().Namespace.StartsWith("Microsoft.Azure.Cosmos"))
-                    throw new AzureTableDataStoreException("Insert operation failed, outlying Table Storage threw an exception: " + e.Message, 
+                if (e.GetType().Namespace.StartsWith("Microsoft.Azure.Cosmos"))
+                    throw new AzureTableDataStoreException("Insert operation failed, outlying Table Storage threw an exception: " + e.Message,
                         AzureTableDataStoreException.ProblemSourceType.TableStorage, e);
-                if(e.GetType().Namespace.StartsWith("Azure.Storage") || e is Azure.RequestFailedException)
-                    throw new AzureTableDataStoreException("Insert operation failed and entity was not inserted, outlying Blob Storage threw an exception: " + e.Message, 
+                if (e.GetType().Namespace.StartsWith("Azure.Storage") || e is Azure.RequestFailedException)
+                    throw new AzureTableDataStoreException("Insert operation failed and entity was not inserted, outlying Blob Storage threw an exception: " + e.Message,
                         AzureTableDataStoreException.ProblemSourceType.BlobStorage, e);
                 throw new AzureTableDataStoreException("Insert operation failed, unhandlable exception: " + e.Message,
                     AzureTableDataStoreException.ProblemSourceType.General, e);
@@ -360,12 +352,44 @@ namespace AzureTableDataStore
             }
         }
 
-        private async Task InsertMultiple(TData[] entries)
+        private async Task InsertMultipleAsync(TData[] entities, bool allowReplace)
         {
-            // todo
+            var failedEntries = new ConcurrentDictionary<TData, Exception>();
+
+            // TODO any nice way to figure out a proper number of async calls?
+            
+            // Run multiple concurrent inserts
+            var batches = entities.SplitToBatches(25).ToList();
+
+            foreach (var batch in batches)
+            {
+                var inserts = batch.Select(async x =>
+                {
+                    try
+                    {
+                        await InsertOneAsync(x, allowReplace);
+                    }
+                    catch (Exception e)
+                    {
+                        failedEntries.TryAdd(x, e);
+                    }
+                });
+                await Task.WhenAll(inserts);
+            }
+
+            if (failedEntries.Any())
+            {
+                var exception = new AzureTableDataStoreException($"Failed to insert {failedEntries.Count} entities. " +
+                    $"See AzureTableDataStoreException.EntityErrors for details.", AzureTableDataStoreException.ProblemSourceType.General,
+                    null);
+                exception.EntityErrors = failedEntries.ToDictionary(x => (object)x.Key, x => x.Value);
+                throw exception;
+            }
+            
+
         }
 
-        private async Task InsertBatched(TData[] entities)
+        private async Task InsertBatchedAsync(TData[] entities, bool allowReplace)
         {
             // Form batches of the data to insert.
             // - Only entities without blob references are eligible since this is a transaction (all or nothing) and blobs fall outside that.
@@ -377,8 +401,9 @@ namespace AzureTableDataStore
 
             var blobProperties = ReflectionUtils.GatherPropertiesWithBlobsRecursive(typeof(TData), EntityPropertyConverterOptions);
             if(blobProperties.Any())
-                throw new AzureTableDataStoreException("Batched inserts are not supported for entity types with blob (LargeBlob) properties due to the " +
-                    "transactional nature of Table batch inserts. Please set the useBatching parameter to false.");
+                throw new AzureTableDataStoreException("Batched inserts are not supported for entity types with LargeBlob properties due to the " +
+                    "transactional nature of Table batch inserts. Please set the useBatching parameter to false.", 
+                    AzureTableDataStoreException.ProblemSourceType.Data);
 
             var entityPartitionGroups = entities.GroupBy(x => _entityTypePartitionKeyPropertyInfo.GetValue(x))
                 .ToDictionary(x => x.Key, x => x.ToList());
@@ -438,11 +463,12 @@ namespace AzureTableDataStore
                 {
                     var tableRef = GetTable();
                     var batchOp = new TableBatchOperation();
-                    x.ForEach(e => batchOp.Add(TableOperation.Insert(e, true)));
+                    x.ForEach(e => batchOp.Add(allowReplace ? TableOperation.InsertOrReplace(e) : TableOperation.Insert(e, true)));
                     return tableRef.ExecuteBatchAsync(batchOp);
                 });
 
-                await Task.WhenAll(batchInsertTasks);
+                // TODO: limit parallel batch inserts to a sane number if the insert amounts are staggering.
+                var results = await Task.WhenAll(batchInsertTasks);
             }
             catch (StorageException e)
             {
@@ -457,34 +483,384 @@ namespace AzureTableDataStore
             
         }
 
-        public Task UpsertAsync(bool useBatching, params TData[] entries)
+        public async Task InsertOrReplaceAsync(bool useBatching, params TData[] entities)
         {
-            throw new NotImplementedException();
+            if (entities == null || entities.Length == 0)
+                return;
+
+            switch (entities.Length)
+            {
+                case 1:
+                    await InsertOneAsync(entities[0], true);
+                    break;
+                default:
+                    if (useBatching) await InsertBatchedAsync(entities, true);
+                    else await InsertMultipleAsync(entities, true);
+                    return;
+            }
         }
 
-        public Task MergeAsync(bool useBatching, Expression<Func<TData, object>> selectExpression, params TData[] entries)
+        private List<string> ValidateSelectExpressionAndExtractMembers(Expression expression)
         {
-            throw new NotImplementedException();
+            List<string> mergedPropertyNames;
+            try
+            {
+                mergedPropertyNames = AzureStorageQuerySelectTranslator.TranslateExpressionToMemberNames(
+                    expression, EntityPropertyConverterOptions);
+
+                if (mergedPropertyNames.Count == 0)
+                {
+                    throw new AzureTableDataStoreException(
+                        "Failed to resolve any properties from select expression",
+                        AzureTableDataStoreException.ProblemSourceType.Data);
+                }
+            }
+            catch (AzureTableDataStoreException)
+            {
+                throw;
+            }
+            catch (Exception e)
+            {
+                throw new AzureTableDataStoreException("Failed to convert expression to member name selection: " + e.Message,
+                    AzureTableDataStoreException.ProblemSourceType.Data, e);
+            }
+
+            // Automatically warn if this happens: the user might accidentally attempt to change values that are keys, and we should let them know.
+            if (mergedPropertyNames.Contains(_configuration.RowKeyProperty) ||
+                mergedPropertyNames.Contains(_configuration.PartitionKeyProperty))
+                throw new AzureTableDataStoreException(
+                    "Do not select the properties for PartitionKey or RowKey in a merge operation; " +
+                    "they are immutable, and will automatically be used as the key to update the entity.",
+                    AzureTableDataStoreException.ProblemSourceType.Data);
+
+            return mergedPropertyNames;
         }
 
-        public Task<IList<TData>> FindAsync(Expression<Func<TData, bool>> queryExpression)
+        public async Task MergeAsync(bool useBatching, Expression<Func<TData, object>> selectMergedPropertiesExpression, params TData[] entities)
         {
-            throw new NotImplementedException();
+            try
+            {
+                if (entities == null || entities.Length == 0)
+                    return;
+
+                List<string> mergedPropertyNames = ValidateSelectExpressionAndExtractMembers(selectMergedPropertiesExpression);
+
+                switch (entities.Length)
+                {
+                    case 1:
+                        await MergeOneAsync(mergedPropertyNames, entities.First());
+                        break;
+                    default:
+                        if (useBatching) await MergeBatchedAsync(mergedPropertyNames, entities);
+                        else await MergeMultipleAsync(mergedPropertyNames, entities);
+                        return;
+                }
+            }
+            catch (AzureTableDataStoreException)
+            {
+                throw;
+            }
+            catch (Exception e)
+            {
+                throw new AzureTableDataStoreException("Merge operation(s) failed: " + e.Message, 
+                    AzureTableDataStoreException.ProblemSourceType.General, e);
+            }
+
         }
 
-        public Task<IList<TData>> FindAsync(string query)
+        private async Task MergeOneAsync(List<string> propertyNames, TData entity)
         {
-            throw new NotImplementedException();
+            try
+            {
+                var entityKeys = GetEntityKeys(entity);
+                var entityData = ExtractEntityProperties(entity);
+                var tableRef = GetTable();
+
+                var blobPropertiesToUpdate = entityData.BlobPropertyRefs
+                    .Where(x => propertyNames.Contains(x.FlattenedPropertyName))
+                    .ToList();
+
+                var collectionPropertiesToUpdate = entityData.CollectionPropertyRefs
+                    .Where(x => propertyNames.Contains(x.FlattenedPropertyName))
+                    .ToList();
+
+                // Check if the row already exists if we have blobs to upload - we don't want to upload them
+                // if the table operation itself may fail.
+                if (blobPropertiesToUpdate.Any())
+                {
+                    TableOperation existsOp = TableOperation.Retrieve(entityKeys.partitionKey, entityKeys.rowKey, new List<string>());
+                    try
+                    {
+                        await tableRef.ExecuteAsync(existsOp);
+                    }
+                    catch (StorageException e)
+                    {
+                        if (e.RequestInformation.HttpStatusCode == 404)
+                        {
+                            throw new AzureTableDataStoreException("An entity with partition key " +
+                                $"'{entityKeys.partitionKey}', row key '{entityKeys.rowKey}' does not exist: cannot merge",
+                                AzureTableDataStoreException.ProblemSourceType.TableStorage, e);
+                        }
+                        else
+                        {
+                            throw new AzureTableDataStoreException("Failed to check the existence of entity with partition key " +
+                                $"'{entityKeys.partitionKey}', row key '{entityKeys.rowKey}': cannot merge",
+                                AzureTableDataStoreException.ProblemSourceType.TableStorage, e);
+                        }
+                    }
+                    
+                    var uploadTasks = blobPropertiesToUpdate
+                        .Select(x => UploadBlobAndUpdateReference(x, entityKeys.partitionKey, entityKeys.rowKey)).ToArray();
+                    await Task.WhenAll(uploadTasks);
+
+                }
+
+                collectionPropertiesToUpdate.ForEach(@ref =>
+                    entityData.PropertyDictionary.Add(@ref.FlattenedPropertyName, EntityProperty.GeneratePropertyForString(
+                        JsonConvert.SerializeObject(@ref.StoredInstance, _jsonSerializerSettings))));
+
+                blobPropertiesToUpdate.ForEach(@ref =>
+                    entityData.PropertyDictionary.Add(@ref.FlattenedPropertyName, EntityProperty.GeneratePropertyForString(
+                        JsonConvert.SerializeObject(@ref.StoredInstance, _jsonSerializerSettings))));
+
+                var selectedPropertyValues = new Dictionary<string, EntityProperty>();
+                foreach (var propertyName in propertyNames)
+                {
+                    var property = entityData.PropertyDictionary[propertyName];
+                    selectedPropertyValues.Add(propertyName, property);
+                }
+
+                var tableEntity = new DynamicTableEntity(entityKeys.partitionKey, entityKeys.rowKey, "*",
+                    selectedPropertyValues);
+
+                var mergeOp = TableOperation.Merge(tableEntity);
+                
+                await tableRef.ExecuteAsync(mergeOp);
+
+            }
+            catch (AzureTableDataStoreException)
+            {
+                throw;
+            }
+            catch (Exception e)
+            {
+                throw new AzureTableDataStoreException("Merge operation(s) failed: " + e.Message,
+                    AzureTableDataStoreException.ProblemSourceType.General, e);
+            }
         }
 
-        // todo only get specified fields if provided
-        public async Task<TData> GetAsync(Expression<Func<TData, bool>> queryExpression)
+        private async Task MergeMultipleAsync(List<string> propertyNames, TData[] entities)
         {
-            var filterString = AzureStorageQueryTranslator.TranslateExpression(queryExpression, 
-                _configuration.PartitionKeyProperty, _configuration.RowKeyProperty, EntityPropertyConverterOptions);
+            var failedEntities = new ConcurrentDictionary<TData, Exception>();
+
+            // TODO any nice way to figure out a proper number of async calls?
+
+            // Run multiple concurrently
+            var batches = entities.SplitToBatches(25).ToList();
+
+            foreach (var batch in batches)
+            {
+                var merges = batch.Select(async x =>
+                {
+                    try
+                    {
+                        await MergeOneAsync(propertyNames, x);
+                    }
+                    catch (Exception e)
+                    {
+                        failedEntities.TryAdd(x, e);
+                    }
+                });
+                await Task.WhenAll(merges);
+            }
+
+            if (failedEntities.Any())
+            {
+                var exception = new AzureTableDataStoreException($"Failed to merge {failedEntities.Count} entities. " +
+                    $"See AzureTableDataStoreException.EntityErrors for details.", AzureTableDataStoreException.ProblemSourceType.General,
+                    null);
+                exception.EntityErrors = failedEntities.ToDictionary(x => (object)x.Key, x => x.Value);
+                throw exception;
+            }
+
+        }
+
+        private async Task MergeBatchedAsync(List<string> propertyNames, TData[] entities)
+        {
+
+            // Form batches of the data to insert.
+            // - If attempting to update a LargeBlob property, throw.
+            // - Group by partition key
+            // - Max 100 items per batch
+            // - A batch may not exceed 4MB
+
+            const long maxBatchSize = 4_000_000;
+            
+            var entityPartitionGroups = entities.GroupBy(x => _entityTypePartitionKeyPropertyInfo.GetValue(x))
+                .ToDictionary(x => x.Key, x => x.ToList());
+
+            var entityBatches = new List<List<DynamicTableEntity>>();
+            bool haveCheckedForBlobProperties = false;
+
+            foreach (var group in entityPartitionGroups)
+            {
+                var entityBatch = new List<DynamicTableEntity>();
+                entityBatches.Add(entityBatch);
+                long batchSize = SerializationUtils.CalculateApproximateBatchRequestSize();
+
+                foreach (var entity in group.Value)
+                {
+                    var entityKeys = GetEntityKeys(entity);
+                    var entityData = ExtractEntityProperties(entity);
+
+                    if (!haveCheckedForBlobProperties)
+                    {
+                        haveCheckedForBlobProperties = true;
+                        foreach (var propertyName in propertyNames)
+                        {
+                            if (entityData.BlobPropertyRefs.Any(x => x.FlattenedPropertyName == propertyName))
+                                throw new AzureTableDataStoreException(
+                                    "Batched merge operations do not support updating LargeBlob fields.",
+                                    AzureTableDataStoreException.ProblemSourceType.Data, null);
+                        }
+                    }
+
+                    var selectedPropertyValues = new Dictionary<string, EntityProperty>();
+
+                    entityData.CollectionPropertyRefs.ForEach(@ref =>
+                        entityData.PropertyDictionary.Add(@ref.FlattenedPropertyName, EntityProperty.GeneratePropertyForString(
+                            JsonConvert.SerializeObject(@ref.StoredInstance, _jsonSerializerSettings))));
+
+                    foreach (var propertyName in propertyNames)
+                    {
+                        var property = entityData.PropertyDictionary[propertyName];
+                        selectedPropertyValues.Add(propertyName, property);
+                    }
+
+                    var tableEntity = new DynamicTableEntity()
+                    {
+                        PartitionKey = entityKeys.partitionKey,
+                        RowKey = entityKeys.rowKey,
+                        ETag = "*",
+                        Properties = selectedPropertyValues
+                    };
+
+                    var entitySizeInBytes = SerializationUtils.CalculateApproximateBatchEntitySize(tableEntity);
+                    if (batchSize + entitySizeInBytes < maxBatchSize && entityBatch.Count < 100)
+                    {
+                        entityBatch.Add(tableEntity);
+                        batchSize += entitySizeInBytes;
+                    }
+                    else
+                    {
+                        entityBatch = new List<DynamicTableEntity> { tableEntity };
+                        entityBatches.Add(entityBatch);
+                        batchSize = SerializationUtils.CalculateApproximateEntitySize(tableEntity);
+                    }
+                }
+            }
+
+            try
+            {
+                var batchTasks = entityBatches.Select(x =>
+                {
+                    var tableRef = GetTable();
+                    var batchOp = new TableBatchOperation();
+                    x.ForEach(e => batchOp.Add(TableOperation.Merge(e)));
+                    return tableRef.ExecuteBatchAsync(batchOp);
+                });
+
+                // TODO: limit parallel batch inserts to a sane number if the insert amounts are staggering.
+                var results = await Task.WhenAll(batchTasks);
+            }
+            catch (StorageException e)
+            {
+                throw new AzureTableDataStoreException($"Batch merge failed: " + e.Message,
+                    AzureTableDataStoreException.ProblemSourceType.TableStorage, e);
+            }
+            catch (Exception e)
+            {
+                throw new AzureTableDataStoreException($"Batch merge failed: " + e.Message,
+                    AzureTableDataStoreException.ProblemSourceType.General, e);
+            }
+
+        }
+
+        public async Task MergeAsync(bool useBatching, Expression<Func<TData, object>> selectMergedPropertiesExpression, params DataStoreEntity<TData>[] entities)
+        {
+            try
+            {
+                if (entities == null || entities.Length == 0)
+                    return;
+
+                List<string> mergedPropertyNames = ValidateSelectExpressionAndExtractMembers(selectMergedPropertiesExpression);
+
+                switch (entities.Length)
+                {
+                    case 1:
+                        await MergeOneAsync(mergedPropertyNames, entities.First());
+                        break;
+                    default:
+                        if (useBatching) await MergeBatchedAsync(mergedPropertyNames, entities);
+                        else await MergeMultipleAsync(mergedPropertyNames, entities);
+                        return;
+                }
+            }
+            catch (AzureTableDataStoreException)
+            {
+                throw;
+            }
+            catch (Exception e)
+            {
+                throw new AzureTableDataStoreException("Merge operation(s) failed: " + e.Message,
+                    AzureTableDataStoreException.ProblemSourceType.General, e);
+            }
+        }
+
+        /// <summary>
+        /// Extracts entity properties into flattened dictionary, blob property references and collection
+        /// property references.
+        /// </summary>
+        /// <param name="entity"></param>
+        /// <returns></returns>
+        private (
+            Dictionary<string, EntityProperty> PropertyDictionary,
+            List<ReflectionUtils.PropertyRef<LargeBlob>> BlobPropertyRefs,
+            List<ReflectionUtils.PropertyRef<ICollection>> CollectionPropertyRefs
+            ) ExtractEntityProperties(TData entity)
+        {
+            var blobPropertyRefs =
+                ReflectionUtils.GatherPropertiesWithBlobsRecursive(entity, EntityPropertyConverterOptions);
+            var collectionPropertyRefs =
+                ReflectionUtils.GatherPropertiesWithCollectionsRecursive(entity, EntityPropertyConverterOptions);
+            var allSpecialPropertyRefs = blobPropertyRefs.Cast<ReflectionUtils.PropertyRef>()
+                .Concat(collectionPropertyRefs).ToList();
+            StripSpeciallyHandledProperties(allSpecialPropertyRefs);
+            var propertyDictionary = EntityPropertyConverter.Flatten(entity, EntityPropertyConverterOptions, null);
+            RestoreSpeciallyHandledProperties(allSpecialPropertyRefs);
+
+            propertyDictionary.Remove(_configuration.RowKeyProperty);
+            propertyDictionary.Remove(_configuration.PartitionKeyProperty);
+
+            return (propertyDictionary, blobPropertyRefs, collectionPropertyRefs);
+        }
+
+        private async Task<TData> GetAsyncInternal(Expression queryExpression)
+        {
+            string filterString;
+            try
+            {
+                filterString = AzureStorageQueryTranslator.TranslateExpression(queryExpression,
+                    _configuration.PartitionKeyProperty, _configuration.RowKeyProperty, EntityPropertyConverterOptions);
+            }
+            catch (Exception e)
+            {
+                throw new AzureTableDataStoreException("Failed to translate expression into a query: " + e.Message,
+                    AzureTableDataStoreException.ProblemSourceType.Data, e);
+            }
 
             var tableRef = GetTable();
-            var query = new TableQuery {FilterString = filterString, TakeCount = 1};
+            var query = new TableQuery { FilterString = filterString, TakeCount = 1 };
 
             try
             {
@@ -493,15 +869,73 @@ namespace AzureTableDataStore
             }
             catch (StorageException e)
             {
-                if(e.RequestInformation.HttpStatusCode == 404)
+                if (e.RequestInformation.HttpStatusCode == 404)
                     throw new AzureTableDataStoreException($"No matching entity using query '{queryExpression}' was found.",
                         AzureTableDataStoreException.ProblemSourceType.TableStorage, e);
 
-                throw new AzureTableDataStoreException($"Failed to retrieve entities with query '{queryExpression}': " + e.Message, 
+                throw new AzureTableDataStoreException($"Failed to retrieve entities with query '{queryExpression}': " + e.Message,
                     AzureTableDataStoreException.ProblemSourceType.TableStorage, e);
             }
-            
         }
+        
+        // todo only get specified fields if provided
+        public async Task<TData> GetAsync(Expression<Func<TData, bool>> queryExpression)
+        {
+            return await GetAsyncInternal(queryExpression);
+        }
+
+
+        public async Task<TData> GetAsync(Expression<Func<TData, DateTimeOffset, bool>> queryExpression)
+        {
+            return await GetAsyncInternal(queryExpression);
+        }
+
+
+
+        private async Task<DataStoreEntity<TData>> GetWithMetadataAsyncInternal(Expression queryExpression)
+        {
+            var filterString = AzureStorageQueryTranslator.TranslateExpression(queryExpression,
+                _configuration.PartitionKeyProperty, _configuration.RowKeyProperty, EntityPropertyConverterOptions);
+
+            var tableRef = GetTable();
+            var query = new TableQuery { FilterString = filterString, TakeCount = 1 };
+
+            try
+            {
+                var results = await tableRef.ExecuteQuerySegmentedAsync(query, null);
+                var firstFound = results.First();
+                var entity = TransformQueryResult(firstFound.PartitionKey, firstFound.RowKey, firstFound.Timestamp,
+                    firstFound.Properties, firstFound.ETag);
+                var outputEntity = new DataStoreEntity<TData>()
+                {
+                    ETag = firstFound.ETag,
+                    Timestamp = firstFound.Timestamp,
+                    Value = entity
+                };
+                return outputEntity;
+            }
+            catch (StorageException e)
+            {
+                if (e.RequestInformation.HttpStatusCode == 404)
+                    throw new AzureTableDataStoreException($"No matching entity using query '{queryExpression}' was found.",
+                        AzureTableDataStoreException.ProblemSourceType.TableStorage, e);
+
+                throw new AzureTableDataStoreException($"Failed to retrieve entities with query '{queryExpression}': " + e.Message,
+                    AzureTableDataStoreException.ProblemSourceType.TableStorage, e);
+            }
+        }
+
+        public async Task<DataStoreEntity<TData>> GetWithMetadataAsync(Expression<Func<TData, bool>> queryExpression)
+        {
+            return await GetWithMetadataAsyncInternal(queryExpression);
+        }
+
+        public async Task<DataStoreEntity<TData>> GetWithMetadataAsync(
+            Expression<Func<TData, DateTimeOffset, bool>> queryExpression)
+        {
+            return await GetWithMetadataAsyncInternal(queryExpression);
+        }
+
 
         private TData TransformQueryResult(string partitionKey,
             string rowKey,
@@ -600,44 +1034,5 @@ namespace AzureTableDataStore
             return current;
         }
 
-        public Task<TData> GetAsync(string query)
-        {
-            throw new NotImplementedException();
-        }
-
-        public Task DeleteAsync(params TData[] entries)
-        {
-            throw new NotImplementedException();
-        }
-
-        public Task DeleteAsync(params string[] ids)
-        {
-            throw new NotImplementedException();
-        }
-
-        public Task DeleteAsync(Expression<Func<TData, bool>> queryExpression)
-        {
-            throw new NotImplementedException();
-        }
-
-        public Task DeleteAsync(string query)
-        {
-            throw new NotImplementedException();
-        }
-
-        public Task EnumerateAsync(Func<TData, Task> enumeratorFunc)
-        {
-            throw new NotImplementedException();
-        }
-
-        public Task EnumerateAsync(Expression<Func<TData, bool>> queryExpression, Func<TData, Task> enumeratorFunc)
-        {
-            throw new NotImplementedException();
-        }
-
-        public Task EnumerateAsync(string query, Func<TData, Task> enumeratorFunc)
-        {
-            throw new NotImplementedException();
-        }
     }
 }

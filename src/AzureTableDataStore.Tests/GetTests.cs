@@ -55,5 +55,16 @@ namespace AzureTableDataStore.Tests
             fetchedBytes.Should().BeEquivalentTo(inputBytes);
 
         }
+
+        [Fact]
+        public async Task Should_get()
+        {
+            var store = new TableDataStore<UserProfile>("UseDevelopmentStorage=true", "userprofiles",
+                "userprofilesblobs", PublicAccessType.None, "UseDevelopmentStorage=true");
+
+            var utcNow = DateTimeOffset.UtcNow;
+            var ent = await store.GetWithMetadataAsync((up) => up.UserId == "007");
+
+        }
     }
 }

@@ -204,5 +204,18 @@ namespace AzureTableDataStore.Tests.InternalTests
                 translated[i].Should().Be(expectedResults[i]);
             }
         }
+
+        [Fact]
+        public void Should_translate_timestamp_expression_properly()
+        {
+
+            Expression<Func<SecretWeapon, DateTime, bool>>
+                expression = (x, dt) => dt > DateTime.Parse("2020-01-01T00:00:00.000Z");
+
+            var translated = AzureStorageQueryTranslator.TranslateExpression(expression, 
+                "", "", _entityPropertyConverterOptions);
+
+
+        }
     }
 }

@@ -73,7 +73,36 @@ namespace AzureTableDataStore.Tests
 
             await store.InsertAsync(true, testEntities.ToArray());
 
+        }
 
+        [Fact]
+        public async Task Should_insert_multiple_without_batching()
+        {
+
+            var testEntities = new List<SecretWeapon>();
+
+            for (var i = 0; i < 105; i++)
+            {
+                testEntities.Add(new SecretWeapon()
+                {
+                    Manufacturer = "MI6 Skunk Works",
+                    ModelId = Guid.NewGuid().ToString(),
+                    Name = $"Shoe knife ({i})",
+                    Type = "Personal Weapon",
+                    Properties = new SecretWeapon.WeaponProperties()
+                    {
+                        Portability = SecretWeapon.WeaponPortability.Portable,
+                        Weight = 1
+                    }
+                });
+            }
+
+
+
+            var store = new TableDataStore<SecretWeapon>("UseDevelopmentStorage=true", "secretweapons",
+                null, PublicAccessType.None, null);
+
+            await store.InsertAsync(false, testEntities.ToArray());
 
 
         }

@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 
 namespace AzureTableDataStore
 {
@@ -14,6 +15,7 @@ namespace AzureTableDataStore
         }
 
         public ProblemSourceType ProblemSource { get; } = ProblemSourceType.General;
+        public IDictionary<object, Exception> EntityErrors { get; internal set; }
 
         public AzureTableDataStoreException(string message, ProblemSourceType problemSource, Exception inner = null) : base(message, inner)
         {
