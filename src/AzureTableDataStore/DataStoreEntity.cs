@@ -17,5 +17,12 @@ namespace AzureTableDataStore
             ETag = etag;
             Value = value;
         }
+
+        public DataStoreEntity(string etag, TData value, DateTimeOffset timestamp)
+        {
+            ETag = etag;
+            Value = value;
+            Timestamp = timestamp;
+        }
     }
 }

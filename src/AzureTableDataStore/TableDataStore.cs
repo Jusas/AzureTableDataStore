@@ -20,7 +20,7 @@ using Newtonsoft.Json;
 
 namespace AzureTableDataStore
 {
-    /// <inheritdoc cref="ITableDataStore"/>
+    /// <inheritdoc cref="ITableDataStore{TData}"/>
     public class TableDataStore<TData> : ITableDataStore<TData> where TData:new()
     {
         private class Configuration
@@ -34,11 +34,11 @@ namespace AzureTableDataStore
 
         private readonly object _syncLock = new object();
         public string Name { get; private set; }
-        private CloudStorageAccount _cloudStorageAccount;
-        private BlobServiceClient _blobServiceClient;
-        private JsonSerializerSettings _jsonSerializerSettings = new JsonSerializerSettings();
+        private readonly CloudStorageAccount _cloudStorageAccount;
+        private readonly BlobServiceClient _blobServiceClient;
+        private readonly JsonSerializerSettings _jsonSerializerSettings = new JsonSerializerSettings();
 
-        private Configuration _configuration;
+        private readonly Configuration _configuration;
         private bool _containerClientInitialized = false;
         private bool _tableClientInitialized = false;
 
@@ -845,54 +845,27 @@ namespace AzureTableDataStore
             return (propertyDictionary, blobPropertyRefs, collectionPropertyRefs);
         }
 
-        private async Task<TData> GetAsyncInternal(Expression queryExpression)
-        {
-            string filterString;
-            try
-            {
-                filterString = AzureStorageQueryTranslator.TranslateExpression(queryExpression,
-                    _configuration.PartitionKeyProperty, _configuration.RowKeyProperty, EntityPropertyConverterOptions);
-            }
-            catch (Exception e)
-            {
-                throw new AzureTableDataStoreException("Failed to translate expression into a query: " + e.Message,
-                    AzureTableDataStoreException.ProblemSourceType.Data, e);
-            }
-
-            var tableRef = GetTable();
-            var query = new TableQuery { FilterString = filterString, TakeCount = 1 };
-
-            try
-            {
-                var results = await tableRef.ExecuteQuerySegmentedAsync(query, TransformQueryResult, null);
-                return results.Results.First();
-            }
-            catch (StorageException e)
-            {
-                if (e.RequestInformation.HttpStatusCode == 404)
-                    throw new AzureTableDataStoreException($"No matching entity using query '{queryExpression}' was found.",
-                        AzureTableDataStoreException.ProblemSourceType.TableStorage, e);
-
-                throw new AzureTableDataStoreException($"Failed to retrieve entities with query '{queryExpression}': " + e.Message,
-                    AzureTableDataStoreException.ProblemSourceType.TableStorage, e);
-            }
-        }
-        
         // todo only get specified fields if provided
-        public async Task<TData> GetAsync(Expression<Func<TData, bool>> queryExpression)
+        public async Task<TData> GetAsync(Expression<Func<TData, bool>> queryExpression, Expression<Func<TData, object>> selectExpression = null)
         {
-            return await GetAsyncInternal(queryExpression);
+            var result = await FindWithMetadataAsyncInternal(queryExpression, selectExpression, 1);
+            var first = result.FirstOrDefault();
+            return first != null ? first.Value : default(TData);
+
+            //return await GetAsyncInternal(queryExpression);
         }
 
 
-        public async Task<TData> GetAsync(Expression<Func<TData, DateTimeOffset, bool>> queryExpression)
+        public async Task<TData> GetAsync(Expression<Func<TData, DateTimeOffset, bool>> queryExpression, Expression<Func<TData, object>> selectExpression = null)
         {
-            return await GetAsyncInternal(queryExpression);
+            var result = await FindWithMetadataAsyncInternal(queryExpression, selectExpression, 1);
+            var first = result.FirstOrDefault();
+            return first != null ? first.Value : default(TData);
+
+            // return await GetAsyncInternal(queryExpression);
         }
 
-
-
-        private async Task<DataStoreEntity<TData>> GetWithMetadataAsyncInternal(Expression queryExpression)
+        private async Task<List<DataStoreEntity<TData>>> FindWithMetadataAsyncInternal(Expression queryExpression, Expression<Func<TData, object>> selectExpression = null, int? takeCount = null)
         {
             string filterString;
             try
@@ -906,25 +879,37 @@ namespace AzureTableDataStore
                     AzureTableDataStoreException.ProblemSourceType.Data, e);
             }
 
+
+            List<string> selectedProperties = null;
+            if (selectExpression != null)
+            {
+                selectedProperties = AzureStorageQuerySelectTranslator.TranslateExpressionToMemberNames(selectExpression,
+                    EntityPropertyConverterOptions);
+            }
+
             var tableRef = GetTable();
-            var query = new TableQuery { FilterString = filterString, TakeCount = 1 };
+            var query = new TableQuery { FilterString = filterString, TakeCount = takeCount };
+            if (selectedProperties != null)
+                query.SelectColumns = selectedProperties;
 
             try
             {
-                var results = await tableRef.ExecuteQuerySegmentedAsync(query, null);
-                var firstFound = results.First();
-                var entity = TransformQueryResult(firstFound.PartitionKey, firstFound.RowKey, firstFound.Timestamp,
-                    firstFound.Properties, firstFound.ETag);
-                var outputEntity = new DataStoreEntity<TData>()
+                TableContinuationToken token = null;
+                var foundEntities = new List<DataStoreEntity<TData>>();
+                
+                do
                 {
-                    ETag = firstFound.ETag,
-                    Timestamp = firstFound.Timestamp,
-                    Value = entity
-                };
-                return outputEntity;
+                    var results = await tableRef.ExecuteQuerySegmentedAsync(query, TransformQueryResult, token);
+                    token = results.ContinuationToken;
+                    foundEntities.AddRange(results.Results);
+                } while (token != null);
+
+                return foundEntities;
+
             }
             catch (StorageException e)
             {
+                // this probably never happens - using a TableOperation.Retrieve would probably give this
                 if (e.RequestInformation.HttpStatusCode == 404)
                     throw new AzureTableDataStoreException($"No matching entity using query '{queryExpression}' was found.",
                         AzureTableDataStoreException.ProblemSourceType.TableStorage, e);
@@ -934,19 +919,45 @@ namespace AzureTableDataStore
             }
         }
 
-        public async Task<DataStoreEntity<TData>> GetWithMetadataAsync(Expression<Func<TData, bool>> queryExpression)
+        public async Task<DataStoreEntity<TData>> GetWithMetadataAsync(Expression<Func<TData, bool>> queryExpression, Expression<Func<TData, object>> selectExpression = null)
         {
-            return await GetWithMetadataAsyncInternal(queryExpression);
+            var result = await FindWithMetadataAsyncInternal(queryExpression, selectExpression, 1);
+            var first = result.FirstOrDefault();
+            return first;
         }
 
-        public async Task<DataStoreEntity<TData>> GetWithMetadataAsync(
-            Expression<Func<TData, DateTimeOffset, bool>> queryExpression)
+        public async Task<DataStoreEntity<TData>> GetWithMetadataAsync(Expression<Func<TData, DateTimeOffset, bool>> queryExpression, Expression<Func<TData, object>> selectExpression = null)
         {
-            return await GetWithMetadataAsyncInternal(queryExpression);
+            var result = await FindWithMetadataAsyncInternal(queryExpression, selectExpression, 1);
+            var first = result.FirstOrDefault();
+            return first;
         }
 
 
-        private TData TransformQueryResult(string partitionKey,
+        public async Task<IList<DataStoreEntity<TData>>> FindWithMetadataAsync(Expression<Func<TData, bool>> queryExpression, Expression<Func<TData, object>> selectExpression = null, int? limit = null)
+        {
+            return await FindWithMetadataAsyncInternal(queryExpression, selectExpression, limit);
+        }
+
+        public async Task<IList<DataStoreEntity<TData>>> FindWithMetadataAsync(Expression<Func<TData, DateTimeOffset, bool>> queryExpression, Expression<Func<TData, object>> selectExpression = null, int? limit = null)
+        {
+            return await FindWithMetadataAsyncInternal(queryExpression, selectExpression, limit);
+        }
+
+        public async Task<IList<TData>> FindAsync(Expression<Func<TData, bool>> queryExpression, Expression<Func<TData, object>> selectExpression = null, int? limit = null)
+        {
+            var results = await FindWithMetadataAsyncInternal(queryExpression, selectExpression, limit);
+            return results.Select(x => x.Value).ToList();
+        }
+
+        public async Task<IList<TData>> FindAsync(Expression<Func<TData, DateTimeOffset, bool>> queryExpression, Expression<Func<TData, object>> selectExpression = null, int? limit = null)
+        {
+            var results = await FindWithMetadataAsyncInternal(queryExpression, selectExpression, limit);
+            return results.Select(x => x.Value).ToList();
+        }
+
+
+        private DataStoreEntity<TData> TransformQueryResult(string partitionKey,
             string rowKey,
             DateTimeOffset timestamp,
             IDictionary<string, EntityProperty> properties,
@@ -955,6 +966,7 @@ namespace AzureTableDataStore
             properties.Add(_configuration.RowKeyProperty, EntityProperty.CreateEntityPropertyFromObject(rowKey));
             properties.Add(_configuration.PartitionKeyProperty, EntityProperty.CreateEntityPropertyFromObject(partitionKey));
 
+            // TODO move these outside, to not repeat this for every result
             var blobRefProperties =
                 ReflectionUtils.GatherPropertiesWithBlobsRecursive(typeof(TData), EntityPropertyConverterOptions);
             var collRefProperties =
@@ -1017,7 +1029,7 @@ namespace AzureTableDataStore
                 propInfo.Property.SetValue(propInfo.SourceObject, deserializedValue);
             }
 
-            return converted;
+            return new DataStoreEntity<TData>(etag, converted, timestamp);
 
         }
 

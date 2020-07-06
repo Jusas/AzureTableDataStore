@@ -10,6 +10,14 @@
     <Description>A simplified interface to Azure Storage Tables with the ability to reference blobs in Blob Containers.</Description>
   </PropertyGroup>
 
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
+    <DocumentationFile>AzureTableDataStore.xml</DocumentationFile>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|AnyCPU'">
+    <DocumentationFile>AzureTableDataStore.xml</DocumentationFile>
+  </PropertyGroup>
+
   <ItemGroup>
     <PackageReference Include="Azure.Storage.Blobs" Version="12.4.4" />
     <PackageReference Include="Microsoft.Azure.Cosmos.Table" Version="1.0.7" />
