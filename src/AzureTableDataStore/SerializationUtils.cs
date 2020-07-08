@@ -104,26 +104,41 @@ namespace AzureTableDataStore
         /// <returns></returns>
         internal static long CalculateApproximateBatchRequestSize(params DynamicTableEntity[] entities)
         {
-            // Request header size, roughly (batch, content-type with some added padding):
-            long headerSize = 150;
+            try
+            {
+                // Request header size, roughly (batch, content-type with some added padding):
+                long headerSize = 150;
 
-            // Request footer size, roughly (changeset and batch and some added padding):
-            long footerSize = 120;
+                // Request footer size, roughly (changeset and batch and some added padding):
+                long footerSize = 120;
 
-            // The entities inside the batch request:
-            long entitiesSize = CalculateApproximateEntitySize(entities);
+                // The entities inside the batch request:
+                long entitiesSize = CalculateApproximateEntitySize(entities);
 
-            // Headers per entity:
-            long entityWrappings = entities.Length * 500;
+                // Headers per entity:
+                long entityWrappings = entities.Length * 500;
 
-            return headerSize + footerSize + entityWrappings + entitiesSize;
+                return headerSize + footerSize + entityWrappings + entitiesSize;
+            }
+            catch (Exception e)
+            {
+                throw new AzureTableDataStoreInternalException("Failed to calculate approximate batch request size: " + e.Message, e);
+            }
+            
         }
 
         internal static long CalculateApproximateBatchEntitySize(DynamicTableEntity entity)
         {
-            long entitiesSize = CalculateApproximateEntitySize(entity);
-            long entityWrappings = 500;
-            return entitiesSize + entityWrappings;
+            try
+            {
+                long entitiesSize = CalculateApproximateEntitySize(entity);
+                long entityWrappings = 500;
+                return entitiesSize + entityWrappings;
+            }
+            catch (Exception e)
+            {
+                throw new AzureTableDataStoreInternalException("Failed to calculate approximate entity batch size: " + e.Message, e);
+            }
         }
 
         internal static long CalculateBase64EncodedSize(byte[] input)

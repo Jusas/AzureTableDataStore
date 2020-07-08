@@ -11,60 +11,60 @@ namespace AzureTableDataStore.Tests
 {
     public class GetTests
     {
-        [Fact]
-        public async Task Should_insert_and_get()
-        {
-            var store = new TableDataStore<UserProfile>("UseDevelopmentStorage=true", "userprofiles",
-                "userprofilesblobs", PublicAccessType.None, "UseDevelopmentStorage=true");
+        //[Fact]
+        //public async Task Should_insert_and_get()
+        //{
+        //    var store = new TableDataStore<UserProfile>("UseDevelopmentStorage=true", "userprofiles",
+        //        "userprofilesblobs", PublicAccessType.None, "UseDevelopmentStorage=true");
 
-            var dataRow = new UserProfile()
-            {
-                Age = 55,
-                Name = "James Bond",
-                Aliases = new List<string>() { "Cmdr Bond", "James", "007" },
-                ExtendedProperties = new UserProfile.ProfileProperties()
-                {
-                    AverageVisitLengthSeconds = 5,
-                    HasVisitedBefore = true
-                },
-                UserType = "agent",
-                UserId = "007",
-                ProfileImagery = new UserProfile.ProfileImages()
-                {
-                    Current = new LargeBlob("bond_new.png", new FileStream("Resources/bond_new.png", FileMode.Open, FileAccess.Read)),
-                    Old = new LargeBlob("bond_old.png", new FileStream("Resources/bond_old.png", FileMode.Open, FileAccess.Read)),
-                }
-            };
+        //    var dataRow = new UserProfile()
+        //    {
+        //        Age = 55,
+        //        Name = "James Bond",
+        //        Aliases = new List<string>() { "Cmdr Bond", "James", "007" },
+        //        ExtendedProperties = new UserProfile.ProfileProperties()
+        //        {
+        //            AverageVisitLengthSeconds = 5,
+        //            HasVisitedBefore = true
+        //        },
+        //        UserType = "agent",
+        //        UserId = "007",
+        //        ProfileImagery = new UserProfile.ProfileImages()
+        //        {
+        //            Current = new LargeBlob("bond_new.png", new FileStream("Resources/bond_new.png", FileMode.Open, FileAccess.Read)),
+        //            Old = new LargeBlob("bond_old.png", new FileStream("Resources/bond_old.png", FileMode.Open, FileAccess.Read)),
+        //        }
+        //    };
 
-            //await store.InsertAsync(dataRow);
+        //    //await store.InsertAsync(dataRow);
 
-            var fetchedRow = await store.GetAsync(x => x.UserId == "007" && x.UserType == "agent");
-            byte[] fetchedBytes;
+        //    var fetchedRow = await store.GetAsync(x => x.UserId == "007" && x.UserType == "agent");
+        //    byte[] fetchedBytes;
            
-            using (var imageDataStream = await fetchedRow.ProfileImagery.Current.AsyncDataStream.Value)
-            {
-                using (var reader = new BinaryReader(imageDataStream))
-                {
-                    // Note: imageDataStream.Length is not supported (HttpBaseStream does not support it)
-                    fetchedBytes = reader.ReadBytes((int)fetchedRow.ProfileImagery.Current.Length);
-                }
-            }
+        //    using (var imageDataStream = await fetchedRow.ProfileImagery.Current.AsyncDataStream.Value)
+        //    {
+        //        using (var reader = new BinaryReader(imageDataStream))
+        //        {
+        //            // Note: imageDataStream.Length is not supported (HttpBaseStream does not support it)
+        //            fetchedBytes = reader.ReadBytes((int)fetchedRow.ProfileImagery.Current.Length);
+        //        }
+        //    }
 
-            var inputBytes = File.ReadAllBytes("Resources/bond_new.png");
+        //    var inputBytes = File.ReadAllBytes("Resources/bond_new.png");
 
-            fetchedBytes.Should().BeEquivalentTo(inputBytes);
+        //    fetchedBytes.Should().BeEquivalentTo(inputBytes);
 
-        }
+        //}
 
-        [Fact]
-        public async Task Should_get()
-        {
-            var store = new TableDataStore<UserProfile>("UseDevelopmentStorage=true", "userprofiles",
-                "userprofilesblobs", PublicAccessType.None, "UseDevelopmentStorage=true");
+        //[Fact]
+        //public async Task Should_get()
+        //{
+        //    var store = new TableDataStore<UserProfile>("UseDevelopmentStorage=true", "userprofiles",
+        //        "userprofilesblobs", PublicAccessType.None, "UseDevelopmentStorage=true");
 
-            var utcNow = DateTimeOffset.UtcNow;
-            var ent = await store.GetWithMetadataAsync((up) => up.UserId == "007");
+        //    var utcNow = DateTimeOffset.UtcNow;
+        //    var ent = await store.GetWithMetadataAsync((up) => up.UserId == "007");
 
-        }
+        //}
     }
 }

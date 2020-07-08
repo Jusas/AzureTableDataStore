@@ -33,15 +33,15 @@ namespace AzureTableDataStore.Tests.InternalTests
             var testObject = new TableRow()
             {
                 Name = "Outer",
-                Document = LargeBlob.FromString("", "document"),
+                Document = new LargeBlob(),
                 RelatedItem = new Attachment()
                 {
                     Name = "Att-01",
-                    File = LargeBlob.FromString("", "att01"),
+                    File = new LargeBlob(),
                     NestedAttachment = new Attachment()
                     {
                         Name = "Att01-Inner",
-                        File = LargeBlob.FromString("", "att01-inner"),
+                        File = new LargeBlob(),
                         NestedAttachment = null
                     }
                 },
@@ -62,15 +62,15 @@ namespace AzureTableDataStore.Tests.InternalTests
             var testObject = new TableRow()
             {
                 Name = "Outer",
-                Document = LargeBlob.FromString("", "document"),
+                Document = new LargeBlob(),
                 RelatedItem = new Attachment()
                 {
                     Name = "Att-01",
-                    File = LargeBlob.FromString("", "att01"),
+                    File = new LargeBlob(),
                     NestedAttachment = new Attachment()
                     {
                         Name = "Att01-Inner",
-                        File = LargeBlob.FromString("", "att01-inner"),
+                        File = new LargeBlob(),
                         NestedAttachment = null,
                         Keywords = new List<string>() { "alpha", "bravo" }
                     }

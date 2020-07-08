@@ -1,4 +1,10 @@
 - if blob is small enough, insert into table as bytes with additional fields.
-	- this becomes difficult upon updates, as we would need to calculate the size of the entire table entity in order to make decisions. will probably not be worth it.
+	- this becomes extremely difficult upon updates, as we would need to calculate the size of the entire table entity in order to make decisions. will probably not be worth it.
 - mime type is not recognized correctly
 - implement property selector expressions
+- add support for more basic types, such as decimal (stored as string, most probably, may cause issues with queries though) and float (stored as double)
+	- this may be much work for very little actual gain
+- removing properties: null values are never serialized into EntityProperties, which is the default flattening/serialization behavior of the Azure library.
+	- setting values to null should remove the properties by default
+	- introduce null behavior: decide whether to remove the property or ignore null values in merge operations.
+	- requires a lot of work, basically will need to forget EntityPropertyConverter.Flatten and ConvertBack and implement it all by myself

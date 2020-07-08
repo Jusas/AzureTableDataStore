@@ -31,7 +31,9 @@ namespace AzureTableDataStore
         /// <para>Batch inserts are not available for entities with <see cref="LargeBlob"/> properties.</para>
         /// </param>
         /// <param name="entities">One ore more entities to insert of the <see cref="TData"/> type.</param>
-        /// <exception cref="AzureTableDataStoreException"></exception>
+        /// <exception cref="AzureTableDataStoreInternalException"></exception>
+        /// <exception cref="AzureTableDataStoreSingleOperationException"></exception>
+        /// <exception cref="AzureTableDataStoreBatchedOperationException"></exception>
         /// <returns></returns>
         Task InsertAsync(bool useBatching, params TData[] entities);
 
@@ -44,7 +46,9 @@ namespace AzureTableDataStore
         /// <para>Batching is not available for entity types with <see cref="LargeBlob"/> properties.</para>
         /// </param>
         /// <param name="entities">One or more entities to insert/replace</param>
-        /// <exception cref="AzureTableDataStoreException"></exception>
+        /// <exception cref="AzureTableDataStoreInternalException"></exception>
+        /// <exception cref="AzureTableDataStoreSingleOperationException"></exception>
+        /// <exception cref="AzureTableDataStoreBatchedOperationException"></exception>
         /// <returns></returns>
         Task InsertOrReplaceAsync(bool useBatching, params TData[] entities);
 
@@ -69,7 +73,9 @@ namespace AzureTableDataStore
         /// <para>Example: entity => new { entity.Name, entity.Email }</para>
         /// </param>
         /// <param name="entities">The entities to update.</param>
-        /// <exception cref="AzureTableDataStoreException"></exception>
+        /// <exception cref="AzureTableDataStoreInternalException"></exception>
+        /// <exception cref="AzureTableDataStoreSingleOperationException"></exception>
+        /// <exception cref="AzureTableDataStoreBatchedOperationException"></exception>
         /// <returns></returns>
         Task MergeAsync(bool useBatching, Expression<Func<TData, object>> selectMergedPropertiesExpression,
             params TData[] entities);
@@ -96,7 +102,9 @@ namespace AzureTableDataStore
         /// </para>
         /// </param>
         /// <param name="entities">The entities to update, wrapped into <see cref="DataStoreEntity{TData}"/> objects to provide ETags.</param>
-        /// <exception cref="AzureTableDataStoreException"></exception>
+        /// <exception cref="AzureTableDataStoreInternalException"></exception>
+        /// <exception cref="AzureTableDataStoreSingleOperationException"></exception>
+        /// <exception cref="AzureTableDataStoreBatchedOperationException"></exception>
         /// <returns></returns>
         Task MergeAsync(bool useBatching, Expression<Func<TData, object>> selectMergedPropertiesExpression,
             params DataStoreEntity<TData>[] entities);
@@ -119,7 +127,8 @@ namespace AzureTableDataStore
         /// <param name="limit">
         /// The maximum number of limits to return. If null, does not limit the number of results.
         /// </param>
-        /// <exception cref="AzureTableDataStoreException"></exception>
+        /// <exception cref="AzureTableDataStoreInternalException"></exception>
+        /// <exception cref="AzureTableDataStoreQueryException"></exception>
         Task<IList<TData>> FindAsync(Expression<Func<TData, bool>> queryExpression, Expression<Func<TData, object>> selectExpression = null, int? limit = null);
 
         /// <summary>
@@ -140,7 +149,8 @@ namespace AzureTableDataStore
         /// </param>
         /// <param name="limit">The maximum number of limits to return. If null, does not limit the number of results.</param>
         /// <returns></returns>
-        /// <exception cref="AzureTableDataStoreException"></exception>
+        /// <exception cref="AzureTableDataStoreInternalException"></exception>
+        /// <exception cref="AzureTableDataStoreQueryException"></exception>
         Task<IList<TData>> FindAsync(Expression<Func<TData, DateTimeOffset, bool>> queryExpression, Expression<Func<TData, object>> selectExpression = null, int? limit = null);
 
         /// <summary>
@@ -161,7 +171,8 @@ namespace AzureTableDataStore
         /// </param>
         /// <param name="limit">The maximum number of limits to return. If null, does not limit the number of results.</param>
         /// <returns></returns>
-        /// <exception cref="AzureTableDataStoreException"></exception>
+        /// <exception cref="AzureTableDataStoreInternalException"></exception>
+        /// <exception cref="AzureTableDataStoreQueryException"></exception>
         Task<IList<DataStoreEntity<TData>>> FindWithMetadataAsync(Expression<Func<TData, bool>> queryExpression, Expression<Func<TData, object>> selectExpression = null, int? limit = null);
 
         /// <summary>
@@ -185,7 +196,8 @@ namespace AzureTableDataStore
         /// </param>
         /// <param name="limit">The maximum number of limits to return. If null, does not limit the number of results.</param>
         /// <returns></returns>
-        /// <exception cref="AzureTableDataStoreException"></exception>
+        /// <exception cref="AzureTableDataStoreInternalException"></exception>
+        /// <exception cref="AzureTableDataStoreQueryException"></exception>
         Task<IList<DataStoreEntity<TData>>> FindWithMetadataAsync(Expression<Func<TData, DateTimeOffset, bool>> queryExpression, Expression<Func<TData, object>> selectExpression = null, int? limit = null);
 
         /// <summary>
@@ -204,7 +216,8 @@ namespace AzureTableDataStore
         /// </para>
         /// </param>
         /// <returns></returns>
-        /// <exception cref="AzureTableDataStoreException"></exception>
+        /// <exception cref="AzureTableDataStoreInternalException"></exception>
+        /// <exception cref="AzureTableDataStoreQueryException"></exception>
         Task<TData> GetAsync(Expression<Func<TData, bool>> queryExpression, Expression<Func<TData, object>> selectExpression = null);
 
         /// <summary>
@@ -224,7 +237,8 @@ namespace AzureTableDataStore
         /// </para>
         /// </param>
         /// <returns></returns>
-        /// <exception cref="AzureTableDataStoreException"></exception>
+        /// <exception cref="AzureTableDataStoreInternalException"></exception>
+        /// <exception cref="AzureTableDataStoreQueryException"></exception>
         Task<TData> GetAsync(Expression<Func<TData, DateTimeOffset, bool>> queryExpression, Expression<Func<TData, object>> selectExpression = null);
 
         /// <summary>
@@ -247,7 +261,8 @@ namespace AzureTableDataStore
         /// </para>
         /// </param>
         /// <returns></returns>
-        /// <exception cref="AzureTableDataStoreException"></exception>
+        /// <exception cref="AzureTableDataStoreInternalException"></exception>
+        /// <exception cref="AzureTableDataStoreQueryException"></exception>
         Task<DataStoreEntity<TData>> GetWithMetadataAsync(Expression<Func<TData, bool>> queryExpression, Expression<Func<TData, object>> selectExpression = null);
 
         /// <summary>
@@ -271,7 +286,8 @@ namespace AzureTableDataStore
         /// </para>
         /// </param>
         /// <returns></returns>
-        /// <exception cref="AzureTableDataStoreException"></exception>
+        /// <exception cref="AzureTableDataStoreInternalException"></exception>
+        /// <exception cref="AzureTableDataStoreQueryException"></exception>
         Task<DataStoreEntity<TData>> GetWithMetadataAsync(Expression<Func<TData, DateTimeOffset, bool>> queryExpression, Expression<Func<TData, object>> selectExpression = null);
 
         //Task DeleteAsync(params TData[] entities);

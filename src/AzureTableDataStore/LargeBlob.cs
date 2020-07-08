@@ -39,6 +39,20 @@ namespace AzureTableDataStore
             AsyncDataStream = new Lazy<Task<Stream>>(() => Task.FromResult(data));
         }
 
+        public LargeBlob(string filename, byte[] data)
+        {
+            Filename = filename;
+            Length = data.LongLength;
+            AsyncDataStream = new Lazy<Task<Stream>>(() => Task.FromResult((Stream)new MemoryStream(data)));
+        }
+
+        public LargeBlob(string filename, string data, Encoding encoding)
+        {
+            var bytes = encoding.GetBytes(data);
+            Length = bytes.LongLength;
+            AsyncDataStream = new Lazy<Task<Stream>>(() => Task.FromResult((Stream)new MemoryStream(bytes)));
+        }
+
         public LargeBlob(string filename, Func<Task<Stream>> dataFactory)
         {
             Filename = filename;
@@ -46,35 +60,12 @@ namespace AzureTableDataStore
             AsyncDataStream = new Lazy<Task<Stream>>(dataFactory);
         }
 
-        internal LargeBlob(BlobClient sourceBlobClient)
+        public LargeBlob(string filename, Func<Stream> dataFactory)
         {
-            
+            Filename = filename;
+            Length = 0;
+            AsyncDataStream = new Lazy<Task<Stream>>(() => Task.Run(dataFactory));
         }
 
-        //internal async Task PopulateFromBlobClient(BlobClient sourceBlobClient)
-        //{
-        //    var properties = await sourceBlobClient.GetPropertiesAsync();
-        //    Length = properties.Value.ContentLength;
-        //    ContentType = properties.Value.ContentType;
-
-        //}
-
-        public static LargeBlob FromStream(Stream stream, string filename = null)
-        {
-            // todo
-            return new LargeBlob();
-        }
-
-        public static LargeBlob FromBytes(byte[] bytes, string filename = null)
-        {
-            // todo
-            return new LargeBlob();
-        }
-
-        public static LargeBlob FromString(string data, string filename = null)
-        {
-            // todo
-            return new LargeBlob();
-        }
     }
 }

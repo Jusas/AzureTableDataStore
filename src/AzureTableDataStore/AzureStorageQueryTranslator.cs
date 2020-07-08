@@ -150,7 +150,7 @@ namespace AzureTableDataStore
                 case TypeCode.UInt64:
                     return ((ulong)value).ToString(ic);
                 case TypeCode.Object:
-                    throw new NotImplementedException("Object conversion to string for queries not supported");
+                    throw new NotImplementedException("Unsupported type: Object conversion to string for queries not supported");
             }
 
             return value.ToString();
