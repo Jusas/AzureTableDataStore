@@ -27,5 +27,14 @@ steps:
     inputs:
       command: 'test'
       projects: $(projects)
+      arguments: '/p:CollectCoverage=true /p:CoverletOutputFormat=cobertura /p:CoverletOutput=./coverage/'
+      publishTestResults: true
     env:
       TestAzureStorageConnectionString: $(connStr)
+
+  - task: PublishCodeCoverageResults@1
+    displayName: 'Publish Code Coverage Results'
+    inputs:
+      codeCoverageTool: 'Cobertura'
+      summaryFileLocation: '$(Build.SourcesDirectory)/**/coverage/coverage.cobertura.xml'
+      failIfCoverageEmpty: true
