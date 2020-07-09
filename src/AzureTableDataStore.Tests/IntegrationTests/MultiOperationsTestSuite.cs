@@ -263,7 +263,7 @@ namespace AzureTableDataStore.Tests.IntegrationTests
         }
 
         [Fact(/*Skip = "reason"*/)]
-        public async Task T07_InsertHugeBatch_WithoutBlobs()
+        public async Task T08_InsertHugeBatch_WithoutBlobs()
         {
             // Arrange
 
@@ -285,7 +285,7 @@ namespace AzureTableDataStore.Tests.IntegrationTests
         }
 
         [Fact(/*Skip = "reason"*/)]
-        public async Task T08_InsertBatches_WithVeryLargeContent_WithoutBlobs()
+        public async Task T09_InsertBatches_WithVeryLargeContent_WithoutBlobs()
         {
             // Arrange
 
@@ -316,7 +316,7 @@ namespace AzureTableDataStore.Tests.IntegrationTests
         }
 
         [Fact(/*Skip = "reason"*/)]
-        public async Task T09_InsertBatches_RaisingExceptionsFromValidation_WithoutBlobs()
+        public async Task T10_InsertBatches_RaisingExceptionsFromValidation_WithoutBlobs()
         {
             // Arrange
 
