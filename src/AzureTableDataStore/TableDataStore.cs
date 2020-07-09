@@ -14,6 +14,7 @@ using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Runtime.Serialization;
 using System.Threading.Tasks;
+using Azure;
 
 [assembly: InternalsVisibleTo("AzureTableDataStore.Tests")]
 
@@ -60,6 +61,20 @@ namespace AzureTableDataStore
                     ReflectionUtils.GatherPropertiesWithCollectionsRecursive(typeof(TData), _entityPropertyConverterOptions);
             }
         }
+
+        /// <summary>
+        /// Uses client side validation if set true.
+        /// <para>
+        /// Client side validation runs before insert/update/merge API operations
+        /// are performed and enable you to catch data issues early before trying
+        /// to make actual API calls to Table and Blob Storage.
+        /// </para>
+        /// <para>
+        /// This adds additional overhead per entity so when working with large entity
+        /// numbers it may be beneficial to keep it off.
+        /// </para>
+        /// </summary>
+        public bool UseClientSideValidation { get; set; } = false;
 
 
         public TableDataStore(string tableStorageConnectionString, string tableName, string blobContainerName, PublicAccessType blobContainerAccessType,
@@ -280,26 +295,53 @@ namespace AzureTableDataStore
                     }
                 }
 
-                var uploadTasks = entityData.BlobPropertyRefs
-                    .Select(x => UploadBlobAndUpdateReference(x, entityKeys.partitionKey, entityKeys.rowKey, allowReplace)).ToArray();
-                await Task.WhenAll(uploadTasks);
+                
 
                 entityData.CollectionPropertyRefs.ForEach(@ref =>
                     entityData.PropertyDictionary.Add(@ref.FlattenedPropertyName, EntityProperty.GeneratePropertyForString(
                         JsonConvert.SerializeObject(@ref.StoredInstance, _jsonSerializerSettings))));
 
-                entityData.BlobPropertyRefs.ForEach(@ref =>
-                    entityData.PropertyDictionary.Add(@ref.FlattenedPropertyName, EntityProperty.GeneratePropertyForString(
-                        JsonConvert.SerializeObject(@ref.StoredInstance, _jsonSerializerSettings))));
+
+                foreach (var @ref in entityData.BlobPropertyRefs)
+                {
+                    var stream = await @ref.StoredInstance.AsyncDataStream.Value;
+                    @ref.StoredInstance.Length = stream.Length;
+                    entityData.PropertyDictionary.Add(@ref.FlattenedPropertyName,
+                        EntityProperty.GeneratePropertyForString(
+                            JsonConvert.SerializeObject(@ref.StoredInstance, _jsonSerializerSettings)));
+                }
 
                 var tableEntity = new DynamicTableEntity(entityKeys.partitionKey, entityKeys.rowKey, "*",
                     entityData.PropertyDictionary);
+
+                if (UseClientSideValidation)
+                {
+                    var entityValidationErrors = SerializationUtils.ValidateProperties(tableEntity);
+                    var blobPaths = entityData.BlobPropertyRefs.Select(x =>
+                        BuildBlobPath(x, entityKeys.partitionKey, entityKeys.rowKey));
+                    var pathValidations = blobPaths.Select(x => SerializationUtils.ValidateBlobPath(x));
+                    entityValidationErrors.AddRange(pathValidations.Where(x => x.Count > 0).SelectMany(x => x));
+
+                    if (entityValidationErrors.Any())
+                    {
+                        var exception = new AzureTableDataStoreEntityValidationException("Client side validation failed for the entity");
+                        exception.EntityValidationErrors.Add(entity, entityValidationErrors);
+                        throw exception;
+                    }
+                }
 
                 var insertOp = TableOperation.Insert(tableEntity);
                 if (allowReplace)
                     insertOp = TableOperation.InsertOrReplace(tableEntity);
 
+
                 await tableRef.ExecuteAsync(insertOp);
+
+                // Upload files after the table insert is successful - otherwise there's no point.
+
+                var uploadTasks = entityData.BlobPropertyRefs
+                    .Select(x => UploadBlobAndUpdateReference(x, BuildBlobPath(x, entityKeys.partitionKey, entityKeys.rowKey), allowReplace)).ToArray();
+                await Task.WhenAll(uploadTasks);
 
             }
             catch(Exception e) when (e is AzureTableDataStoreSingleOperationException || e is AzureTableDataStoreInternalException)
@@ -314,31 +356,39 @@ namespace AzureTableDataStore
             catch (Exception e)
             {
                 if (e.GetType().Namespace.StartsWith("Microsoft.Azure.Cosmos"))
-                    throw new AzureTableDataStoreSingleOperationException("Insert operation failed, outlying Table Storage threw an exception: " + e.Message,
+                    throw new AzureTableDataStoreSingleOperationException("Prepare insert operation failed, outlying Table Storage threw an exception: " + e.Message,
                         ProblemSourceType.TableStorage, e);
                 if (e.GetType().Namespace.StartsWith("Azure.Storage") || e is Azure.RequestFailedException)
                     throw new AzureTableDataStoreSingleOperationException("Insert operation failed and entity was not inserted, outlying Blob Storage threw an exception: " + e.Message,
                         ProblemSourceType.BlobStorage, e);
-                throw new AzureTableDataStoreSingleOperationException("Insert operation failed, unhandlable exception: " + e.Message,
+                throw new AzureTableDataStoreSingleOperationException("Prepare insert operation failed, unhandlable exception: " + e.Message,
                     ProblemSourceType.General, e);
             }
         }
 
+        
+        private string BuildBlobPath(ReflectionUtils.PropertyRef<LargeBlob> blobPropRef, string partitionKey,
+            string rowKey)
+        {
+            return string.Join("/",
+                _configuration.StorageTableName,
+                partitionKey,
+                rowKey,
+                blobPropRef.FlattenedPropertyName,
+                blobPropRef.StoredInstance.Filename);
+        }
 
-
-        private async Task UploadBlobAndUpdateReference(ReflectionUtils.PropertyRef<LargeBlob> blobPropRef, string partitionKey, string rowKey, bool allowReplace)
+        private async Task UploadBlobAndUpdateReference(ReflectionUtils.PropertyRef<LargeBlob> blobPropRef, string blobPath, bool allowReplace)
         {
             var containerClient = GetContainerClient();
-            var blobPath = string.Join("/",
-                               _configuration.StorageTableName,
-                               partitionKey,
-                               rowKey,
-                               blobPropRef.FlattenedPropertyName,
-                               blobPropRef.StoredInstance.Filename);
 
             var dataStream = await blobPropRef.StoredInstance.AsyncDataStream.Value;
             var blobClient = containerClient.GetBlobClient(blobPath);
-            await blobClient.UploadAsync(dataStream, allowReplace);
+            //await blobClient.UploadAsync(dataStream, allowReplace);
+            await blobClient.UploadAsync(dataStream, new BlobHttpHeaders()
+            {
+                ContentType = blobPropRef.StoredInstance.ContentType
+            }, conditions: allowReplace ? null : new BlobRequestConditions { IfNoneMatch = new ETag("*") });
             // Should we compare the hashes just in case?
             dataStream.Seek(0, SeekOrigin.Begin);
             var props = await blobClient.GetPropertiesAsync();
@@ -439,6 +489,7 @@ namespace AzureTableDataStore
                 .ToDictionary(x => x.Key, x => x.ToList());
 
             var entityBatches = new List<List<DynamicTableEntity>>();
+            var validationException = new AzureTableDataStoreEntityValidationException("Client side validation failed for the entity");
 
             try
             {
@@ -476,6 +527,16 @@ namespace AzureTableDataStore
                             Properties = propertyDictionary
                         };
 
+                        if (UseClientSideValidation)
+                        {
+                            var entityValidationErrors = SerializationUtils.ValidateProperties(tableEntity);
+                            if (entityValidationErrors.Any())
+                            {
+                                validationException.EntityValidationErrors.Add(entity, entityValidationErrors);
+                                continue;
+                            }
+                        }
+
                         var entitySizeInBytes = SerializationUtils.CalculateApproximateBatchEntitySize(tableEntity);
                         if (batchSize + entitySizeInBytes < maxBatchSize && entityBatch.Count < 100)
                         {
@@ -490,6 +551,13 @@ namespace AzureTableDataStore
                         }
                     }
                 }
+
+                if (validationException.EntityValidationErrors.Any())
+                    throw validationException;
+            }
+            catch (AzureTableDataStoreEntityValidationException)
+            {
+                throw;
             }
             catch (SerializationException e)
             {
@@ -667,20 +735,22 @@ namespace AzureTableDataStore
                             $"'{entityKeys.partitionKey}', row key '{entityKeys.rowKey}': cannot merge",
                             ProblemSourceType.TableStorage, e);
                     }
-
-                    var uploadTasks = blobPropertiesToUpdate
-                        .Select(x => UploadBlobAndUpdateReference(x, entityKeys.partitionKey, entityKeys.rowKey, true)).ToArray();
-                    await Task.WhenAll(uploadTasks);
-
+                    
                 }
 
                 collectionPropertiesToUpdate.ForEach(@ref =>
                     entityData.PropertyDictionary.Add(@ref.FlattenedPropertyName, EntityProperty.GeneratePropertyForString(
                         JsonConvert.SerializeObject(@ref.StoredInstance, _jsonSerializerSettings))));
 
-                blobPropertiesToUpdate.ForEach(@ref =>
-                    entityData.PropertyDictionary.Add(@ref.FlattenedPropertyName, EntityProperty.GeneratePropertyForString(
-                        JsonConvert.SerializeObject(@ref.StoredInstance, _jsonSerializerSettings))));
+                foreach (var @ref in blobPropertiesToUpdate)
+                {
+                    var stream = await @ref.StoredInstance.AsyncDataStream.Value;
+                    @ref.StoredInstance.Length = stream.Length;
+                    entityData.PropertyDictionary.Add(@ref.FlattenedPropertyName,
+                        EntityProperty.GeneratePropertyForString(
+                            JsonConvert.SerializeObject(@ref.StoredInstance, _jsonSerializerSettings)));
+                }
+
 
                 var selectedPropertyValues = new Dictionary<string, EntityProperty>();
                 foreach (var propertyName in propertyNames)
@@ -699,9 +769,34 @@ namespace AzureTableDataStore
                 var tableEntity = new DynamicTableEntity(entityKeys.partitionKey, entityKeys.rowKey, entity.ETag,
                     selectedPropertyValues);
 
+                if (UseClientSideValidation)
+                {
+                    var entityValidationErrors = SerializationUtils.ValidateProperties(tableEntity);
+                    var blobPaths = blobPropertiesToUpdate.Select(x =>
+                        BuildBlobPath(x, entityKeys.partitionKey, entityKeys.rowKey));
+                    var pathValidations = blobPaths.Select(x => SerializationUtils.ValidateBlobPath(x));
+                    entityValidationErrors.AddRange(pathValidations.Where(x => x.Count > 0).SelectMany(x => x));
+
+                    if (entityValidationErrors.Any())
+                    {
+                        var exception = new AzureTableDataStoreEntityValidationException("Client side validation failed for the entity");
+                        exception.EntityValidationErrors.Add(entity, entityValidationErrors);
+                        throw exception;
+                    }
+                }
+
                 var mergeOp = TableOperation.Merge(tableEntity);
 
                 await tableRef.ExecuteAsync(mergeOp);
+
+                // Upload blobs only if the table op succeeds.
+
+                if (blobPropertiesToUpdate.Any())
+                {
+                    var uploadTasks = blobPropertiesToUpdate
+                        .Select(x => UploadBlobAndUpdateReference(x, BuildBlobPath(x, entityKeys.partitionKey, entityKeys.rowKey), true)).ToArray();
+                    await Task.WhenAll(uploadTasks);
+                }
 
             }
             catch (Exception e) when (e is AzureTableDataStoreSingleOperationException || e is AzureTableDataStoreInternalException)
@@ -724,7 +819,7 @@ namespace AzureTableDataStore
             // TODO any nice way to figure out a proper number of async calls?
 
             // Run multiple concurrently
-            var batches = entities.SplitToBatches(25).ToList();
+            var batches = entities.SplitToBatches(10).ToList();
 
             foreach (var batch in batches)
             {
@@ -773,6 +868,8 @@ namespace AzureTableDataStore
 
                 bool haveCheckedForBlobProperties = false;
 
+                var validationException = new AzureTableDataStoreEntityValidationException("Client side validation failed for the entity");
+
                 foreach (var group in entityPartitionGroups)
                 {
                     var entityBatch = new List<DynamicTableEntity>();
@@ -817,6 +914,16 @@ namespace AzureTableDataStore
                             Properties = selectedPropertyValues
                         };
 
+                        if (UseClientSideValidation)
+                        {
+                            var entityValidationErrors = SerializationUtils.ValidateProperties(tableEntity);
+                            if (entityValidationErrors.Any())
+                            {
+                                validationException.EntityValidationErrors.Add(entity, entityValidationErrors);
+                                continue;
+                            }
+                        }
+
                         var entitySizeInBytes = SerializationUtils.CalculateApproximateBatchEntitySize(tableEntity);
                         if (batchSize + entitySizeInBytes < maxBatchSize && entityBatch.Count < 100)
                         {
@@ -832,6 +939,12 @@ namespace AzureTableDataStore
                     }
                 }
 
+                if (validationException.EntityValidationErrors.Any())
+                    throw validationException;
+            }
+            catch (AzureTableDataStoreEntityValidationException)
+            {
+                throw;
             }
             catch (AzureTableDataStoreInternalException)
             {

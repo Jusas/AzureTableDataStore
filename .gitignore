@@ -3,3 +3,4 @@ bin/
 obj/
 .vs/
 src/AzureTableDataStore/AzureTableDataStore.xml
+src/AzureTableDataStore.Tests/Properties/launchSettings.json

@@ -22,8 +22,8 @@ namespace AzureTableDataStore.Tests.IntegrationTests
 
         public TableDataStore<TelescopePackageProduct> GetTelescopeStore()
         {
-            return new TableDataStore<TelescopePackageProduct>(_storageContextFixture.ConnectionString, _storageContextFixture.TableName,
-                _storageContextFixture.ContainerName, PublicAccessType.None, _storageContextFixture.ConnectionString);
+            return new TableDataStore<TelescopePackageProduct>(_storageContextFixture.ConnectionString, _storageContextFixture.TableAndContainerName,
+                _storageContextFixture.TableAndContainerName, PublicAccessType.None, _storageContextFixture.ConnectionString);
         }
 
         [Fact(/*Skip = "reason"*/)]
@@ -263,7 +263,7 @@ namespace AzureTableDataStore.Tests.IntegrationTests
         }
 
         [Fact(/*Skip = "reason"*/)]
-        public async Task T06_InsertHugeBatch_WithoutBlobs()
+        public async Task T07_InsertHugeBatch_WithoutBlobs()
         {
             // Arrange
 
@@ -285,7 +285,7 @@ namespace AzureTableDataStore.Tests.IntegrationTests
         }
 
         [Fact(/*Skip = "reason"*/)]
-        public async Task T07_InsertBatches_WithVeryLargeContent_WithoutBlobs()
+        public async Task T08_InsertBatches_WithVeryLargeContent_WithoutBlobs()
         {
             // Arrange
 
@@ -315,37 +315,38 @@ namespace AzureTableDataStore.Tests.IntegrationTests
             // Should not throw, should succeed by splitting the content into multiple batches.
         }
 
+        [Fact(/*Skip = "reason"*/)]
+        public async Task T09_InsertBatches_RaisingExceptionsFromValidation_WithoutBlobs()
+        {
+            // Arrange
 
+            // Set images to null so that we can use the batch insert with this data model.
+            var itemsToAdd = MockData.TelescopeMockDataGenerator.CreateDataSet(150, partitionKey: "exceptions1");
+            for (var i = 0; i < itemsToAdd.Length; i++)
+            {
+                itemsToAdd[i].MainImage = null;
+            }
 
-        //[Fact(/*Skip = "reason"*/)]
-        //public async Task T04_Merge_WithVeryLargeContent_WithoutBlobs()
-        //{
-        //    // Arrange
+            // Make a few entities contain content that cannot be stored.
+            var longText = new string(Enumerable.Repeat('a', 64000).ToArray());
+            for (var i = 5; i < 8; i++)
+            {
+                itemsToAdd[i].Description = longText;
+                itemsToAdd[i].Name = longText;
+            }
 
-        //    // Set images to null so that we can use the batch insert with this data model.
-        //    var itemsToAdd = MockData.TelescopeMockDataGenerator.CreateDataSet(100);
-        //    for (var i = 0; i < itemsToAdd.Length; i++)
-        //    {
-        //        itemsToAdd[i].MainImage = null;
-        //    }
+            var store = GetTelescopeStore();
+            store.UseClientSideValidation = true;
 
-        //    // Make sure the data we're inserting will go over the 4MB per batch rule.
-        //    // Note the one property rule of max 64kb size, 32k chars of UTF-16.
+            // Act
 
-        //    var longText = new string(Enumerable.Repeat('a', 32000).ToArray());
-        //    for (var i = 0; i < itemsToAdd.Length; i++)
-        //    {
-        //        itemsToAdd[i].Description = longText;
-        //        itemsToAdd[i].Name = longText;
-        //    }
+            // Client side validation should catch this early.
 
-        //    var store = GetTelescopeStore();
+            var exception = await Assert.ThrowsAsync<AzureTableDataStoreEntityValidationException>(() => store.InsertAsync(true, itemsToAdd));
 
-        //    // Act
+            exception.EntityValidationErrors.Count.Should().Be(3);
 
-        //    await store.InsertAsync(true, itemsToAdd);
+        }
 
-        //    // Should not throw, should succeed by splitting the content into multiple batches.
-        //}
     }
 }

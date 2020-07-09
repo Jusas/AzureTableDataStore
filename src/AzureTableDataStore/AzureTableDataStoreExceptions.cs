@@ -128,4 +128,21 @@ namespace AzureTableDataStore
             ProblemSource = problemSource;
         }
     }
+
+    /// <summary>
+    /// Exception representing client side entity validation errors.
+    /// </summary>
+    public class AzureTableDataStoreEntityValidationException : Exception
+    {
+
+        /// <summary>
+        /// The validation errors, per entity. Dictionary key is the entity itself.
+        /// </summary>
+        public IDictionary<object, List<string>> EntityValidationErrors { get; } = new Dictionary<object, List<string>>();
+
+        public AzureTableDataStoreEntityValidationException(string message, Exception inner = null) : base(message, inner)
+        {
+            
+        }
+    }
 }

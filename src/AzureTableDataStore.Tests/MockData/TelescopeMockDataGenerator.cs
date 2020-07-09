@@ -184,7 +184,7 @@ namespace AzureTableDataStore.Tests.MockData
         /// </summary>
         /// <param name="size"></param>
         /// <returns></returns>
-        public static TelescopePackageProduct[] CreateDataSet(int size, string additionalIdStr = "")
+        public static TelescopePackageProduct[] CreateDataSet(int size, string additionalIdStr = "", string partitionKey = null)
         {
             var items = new TelescopePackageProduct[size];
             int i = 0;
@@ -194,6 +194,8 @@ namespace AzureTableDataStore.Tests.MockData
                 var newItem = _smallDataSet[index]();
                 newItem.ProductId += $"{i}"+additionalIdStr;
                 newItem.Name += $" ({i})";
+                if (partitionKey != null)
+                    newItem.CategoryId = partitionKey;
                 items[i] = newItem;
                 i++;
             }

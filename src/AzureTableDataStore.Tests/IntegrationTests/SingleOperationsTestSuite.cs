@@ -16,8 +16,8 @@ namespace AzureTableDataStore.Tests.IntegrationTests
 
         public TableDataStore<TelescopePackageProduct> GetTelescopeStore()
         {
-            return new TableDataStore<TelescopePackageProduct>(_storageContextFixture.ConnectionString, _storageContextFixture.TableName,
-                _storageContextFixture.ContainerName, PublicAccessType.None, _storageContextFixture.ConnectionString);
+            return new TableDataStore<TelescopePackageProduct>(_storageContextFixture.ConnectionString, _storageContextFixture.TableAndContainerName,
+                _storageContextFixture.TableAndContainerName, PublicAccessType.None, _storageContextFixture.ConnectionString);
         }
 
         private StorageContextFixture _storageContextFixture;

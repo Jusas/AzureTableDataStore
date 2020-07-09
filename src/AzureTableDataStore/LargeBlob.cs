@@ -32,39 +32,44 @@ namespace AzureTableDataStore
         {
         }
 
-        public LargeBlob(string filename, Stream data)
+        public LargeBlob(string filename, Stream data, string contentType = null)
         {
             Filename = filename;
             Length = data.Length;
             AsyncDataStream = new Lazy<Task<Stream>>(() => Task.FromResult(data));
+            ContentType = contentType ?? "application/octet-stream";
         }
 
-        public LargeBlob(string filename, byte[] data)
+        public LargeBlob(string filename, byte[] data, string contentType = null)
         {
             Filename = filename;
             Length = data.LongLength;
             AsyncDataStream = new Lazy<Task<Stream>>(() => Task.FromResult((Stream)new MemoryStream(data)));
+            ContentType = contentType ?? "application/octet-stream";
         }
 
-        public LargeBlob(string filename, string data, Encoding encoding)
+        public LargeBlob(string filename, string data, Encoding encoding, string contentType = null)
         {
             var bytes = encoding.GetBytes(data);
             Length = bytes.LongLength;
             AsyncDataStream = new Lazy<Task<Stream>>(() => Task.FromResult((Stream)new MemoryStream(bytes)));
+            ContentType = contentType ?? "application/octet-stream";
         }
 
-        public LargeBlob(string filename, Func<Task<Stream>> dataFactory)
+        public LargeBlob(string filename, Func<Task<Stream>> dataFactory, string contentType = null)
         {
             Filename = filename;
             Length = 0;
             AsyncDataStream = new Lazy<Task<Stream>>(dataFactory);
+            ContentType = contentType ?? "application/octet-stream";
         }
 
-        public LargeBlob(string filename, Func<Stream> dataFactory)
+        public LargeBlob(string filename, Func<Stream> dataFactory, string contentType = null)
         {
             Filename = filename;
             Length = 0;
             AsyncDataStream = new Lazy<Task<Stream>>(() => Task.Run(dataFactory));
+            ContentType = contentType ?? "application/octet-stream";
         }
 
     }
