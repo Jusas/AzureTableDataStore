@@ -33,6 +33,8 @@ steps:
     env:
       TestAzureStorageConnectionString: $(connStr)
 
+  - script: ls -laR
+
   - task: PublishCodeCoverageResults@1
     displayName: 'Publish Code Coverage Results'
     inputs:
