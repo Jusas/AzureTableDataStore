@@ -28,12 +28,10 @@ steps:
     inputs:
       command: 'test'
       projects: $(testProjects)
-      arguments: '--collect:"XPlat Code Coverage"'
+      arguments: '--configuration $(buildConfiguration) /p:CollectCoverage=true /p:CoverletOutputFormat=cobertura /p:CoverletOutput=$(Build.SourcesDirectory)/TestResults/Coverage/'
       publishTestResults: true
     env:
       TestAzureStorageConnectionString: $(connStr)
-
-  - script: ls -laR
 
   - task: PublishCodeCoverageResults@1
     displayName: 'Publish Code Coverage Results'
