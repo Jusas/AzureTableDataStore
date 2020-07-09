@@ -37,5 +37,5 @@ steps:
     displayName: 'Publish Code Coverage Results'
     inputs:
       codeCoverageTool: 'Cobertura'
-      summaryFileLocation: '$(Build.SourcesDirectory)/TestResults/**/*.cobertura.xml'
+      summaryFileLocation: '$(Build.SourcesDirectory)/**/*.cobertura.xml'
       failIfCoverageEmpty: true
