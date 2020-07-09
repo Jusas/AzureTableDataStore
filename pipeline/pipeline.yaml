@@ -28,7 +28,7 @@ steps:
     inputs:
       command: 'test'
       projects: $(testProjects)
-      arguments: '/p:CollectCoverage=true /p:CoverletOutputFormat=cobertura /p:CoverletOutput=$(Build.SourcesDirectory)/coverage/'
+      arguments: '--collect:"XPlat Code Coverage"'
       publishTestResults: true
     env:
       TestAzureStorageConnectionString: $(connStr)
@@ -37,5 +37,5 @@ steps:
     displayName: 'Publish Code Coverage Results'
     inputs:
       codeCoverageTool: 'Cobertura'
-      summaryFileLocation: '$(Build.SourcesDirectory)/coverage/coverage.cobertura.xml'
+      summaryFileLocation: '$(Build.SourcesDirectory)/TestResults/**/*.cobertura.xml'
       failIfCoverageEmpty: true
