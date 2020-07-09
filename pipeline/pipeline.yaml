@@ -12,6 +12,7 @@ pool:
 variables:
   buildConfiguration: 'Release'
   projects: 'src/**/*.csproj'
+  testProjects: 'src/**/*.Tests.csproj'
   connStr: $(TestAzureStorageConnectionString)
 
 steps:
@@ -26,8 +27,8 @@ steps:
     displayName: 'Test'
     inputs:
       command: 'test'
-      projects: $(projects)
-      arguments: '/p:CollectCoverage=true /p:CoverletOutputFormat=cobertura /p:CoverletOutput=./coverage/'
+      projects: $(testProjects)
+      arguments: '/p:CollectCoverage=true /p:CoverletOutputFormat=cobertura /p:CoverletOutput=$(Build.SourcesDirectory)/coverage/'
       publishTestResults: true
     env:
       TestAzureStorageConnectionString: $(connStr)
@@ -36,5 +37,5 @@ steps:
     displayName: 'Publish Code Coverage Results'
     inputs:
       codeCoverageTool: 'Cobertura'
-      summaryFileLocation: '$(Build.SourcesDirectory)/**/coverage/coverage.cobertura.xml'
+      summaryFileLocation: '$(Build.SourcesDirectory)/coverage/coverage.cobertura.xml'
       failIfCoverageEmpty: true
