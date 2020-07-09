@@ -12,7 +12,7 @@ pool:
 variables:
   buildConfiguration: 'Release'
   projects: 'src/**/*.csproj'
-  TestAzureStorageConnectionString: $(TestAzureStorageConnectionString)
+  # TestAzureStorageConnectionString is assumed to hold the connection string to test storage account.
 
 steps:
   - task: DotNetCoreCLI@2
