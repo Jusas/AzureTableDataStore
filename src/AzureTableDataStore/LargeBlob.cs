@@ -8,6 +8,22 @@ using Newtonsoft.Json;
 
 namespace AzureTableDataStore
 {
+    /// <summary>
+    /// How to handle an entity's <see cref="LargeBlob"/> properties that have been set to null.
+    /// </summary>
+    public enum LargeBlobNullBehavior
+    {
+        /// <summary>
+        /// Ignore the property when the value is null: act like it isn't even a part of the entity.
+        /// </summary>
+        IgnoreProperty,
+
+        /// <summary>
+        /// Setting the property value null actually means removing the blob, i.e. deleting the blob, if one already exists.
+        /// </summary>
+        DeleteBlob
+    }
+
     public sealed class LargeBlob
     {
         [JsonProperty]

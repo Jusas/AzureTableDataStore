@@ -133,13 +133,14 @@ namespace AzureTableDataStore.Tests.IntegrationTests
                 expectedImgSize = newImage.Length;
             }
 
-            // Note: currently null values are simply ignored => the other main images will not be touched in any way.
+            // Note: here we have decided to ignore null LargeBlobs => the other main images will not be touched in any way.
 
             testDataSet[0].Name = "Telescope 1";
             testDataSet[0].Description = "Changed";
             testDataSet[0].MainImage = new LargeBlob("newimage.png", () => new FileStream("Resources/meade-telescope-n-2001000-lx85-goto.png", FileMode.Open, FileAccess.Read));
             testDataSet[1].Name = "Telescope 2";
             testDataSet[1].Description = "Changed";
+            testDataSet[1].MainImage = null;
             testDataSet[2].Name = "Telescope 3";
             testDataSet[2].Description = "Changed";
             testDataSet[3].Name = "Telescope 4";
@@ -152,7 +153,7 @@ namespace AzureTableDataStore.Tests.IntegrationTests
                 x.MainImage,
                 x.Name,
                 x.Description
-            },testDataSet.ToArray());
+            }, LargeBlobNullBehavior.IgnoreProperty, testDataSet.ToArray());
 
             
             // Assert
@@ -202,11 +203,13 @@ namespace AzureTableDataStore.Tests.IntegrationTests
             telescopes[1].Value.Description = "Changed 2";
             telescopes[2].Value.Description = "Changed 2";
 
+            // Here the LargeBlobNullBehavior.IgnoreProperty is meaningless, since the property is not selected for merging.
+
             await store.MergeAsync(true, x => new
             {
                 x.Name,
                 x.Description
-            }, telescopes.ToArray());
+            }, LargeBlobNullBehavior.IgnoreProperty, telescopes.ToArray());
 
 
             // Assert

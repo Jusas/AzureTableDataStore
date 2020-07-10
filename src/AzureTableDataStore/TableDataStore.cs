@@ -265,7 +265,7 @@ namespace AzureTableDataStore
         {
             try
             {
-                var entityData = ExtractEntityProperties(entity);
+                var entityData = ExtractEntityProperties(entity, allowReplace);
                 var entityKeys = GetEntityKeys(entity);
                 var tableRef = GetTable();
 
@@ -295,6 +295,7 @@ namespace AzureTableDataStore
                     }
                 }
 
+                // todo if replace, and if entity type has any LargeBlobs, delete old blobs after uploading new ones if the new filename does not match the old filename.
                 
 
                 entityData.CollectionPropertyRefs.ForEach(@ref =>
@@ -304,6 +305,9 @@ namespace AzureTableDataStore
 
                 foreach (var @ref in entityData.BlobPropertyRefs)
                 {
+                    if (@ref.StoredInstance == null)
+                        continue;
+
                     var stream = await @ref.StoredInstance.AsyncDataStream.Value;
                     @ref.StoredInstance.Length = stream.Length;
                     entityData.PropertyDictionary.Add(@ref.FlattenedPropertyName,
@@ -340,7 +344,7 @@ namespace AzureTableDataStore
                 // Upload files after the table insert is successful - otherwise there's no point.
 
                 var uploadTasks = entityData.BlobPropertyRefs
-                    .Select(x => UploadBlobAndUpdateReference(x, BuildBlobPath(x, entityKeys.partitionKey, entityKeys.rowKey), allowReplace)).ToArray();
+                    .Select(x => HandleBlobAndUpdateReference(x, BuildBlobPath(x, entityKeys.partitionKey, entityKeys.rowKey), allowReplace, LargeBlobNullBehavior.DeleteBlob)).ToArray();
                 await Task.WhenAll(uploadTasks);
 
             }
@@ -375,16 +379,46 @@ namespace AzureTableDataStore
                 partitionKey,
                 rowKey,
                 blobPropRef.FlattenedPropertyName,
-                blobPropRef.StoredInstance.Filename);
+                blobPropRef.StoredInstance?.Filename ?? "");
         }
 
-        private async Task UploadBlobAndUpdateReference(ReflectionUtils.PropertyRef<LargeBlob> blobPropRef, string blobPath, bool allowReplace)
+        private async Task HandleBlobAndUpdateReference(ReflectionUtils.PropertyRef<LargeBlob> blobPropRef, string blobPath, bool allowReplace, LargeBlobNullBehavior largeBlobNullBehavior)
         {
             var containerClient = GetContainerClient();
+            var blobClient = containerClient.GetBlobClient(blobPath);
+
+            // In case we're setting purposefully a blob to null with the intention of deleting it, or we're replacing the blob with a new one,
+            // we need to collect the old blob instances to a list so that we can delete them.
+
+            var oldBlobPaths = new List<string>();
+
+            if ((blobPropRef.StoredInstance == null && largeBlobNullBehavior == LargeBlobNullBehavior.DeleteBlob) || allowReplace)
+            {
+                var oldBlobs = containerClient.GetBlobsAsync(prefix: blobPath.Substring(0, blobPath.LastIndexOf('/')));
+                var enumerator = oldBlobs.GetAsyncEnumerator();
+                while (await enumerator.MoveNextAsync())
+                {
+                    var oldBlob = enumerator.Current;
+                    oldBlobPaths.Add(oldBlob.Name);
+                }
+            }
+
+            if (blobPropRef.StoredInstance == null && largeBlobNullBehavior == LargeBlobNullBehavior.IgnoreProperty)
+                return;
+
+
+            if (blobPropRef.StoredInstance == null && largeBlobNullBehavior == LargeBlobNullBehavior.DeleteBlob)
+            {
+                foreach (var oldBlob in oldBlobPaths)
+                {
+                    await containerClient.GetBlobClient(oldBlob).DeleteIfExistsAsync();
+                }
+
+                return;
+            }
+
 
             var dataStream = await blobPropRef.StoredInstance.AsyncDataStream.Value;
-            var blobClient = containerClient.GetBlobClient(blobPath);
-            //await blobClient.UploadAsync(dataStream, allowReplace);
             await blobClient.UploadAsync(dataStream, new BlobHttpHeaders()
             {
                 ContentType = blobPropRef.StoredInstance.ContentType
@@ -394,6 +428,16 @@ namespace AzureTableDataStore
             var props = await blobClient.GetPropertiesAsync();
             blobPropRef.StoredInstance.Length = props.Value.ContentLength;
             blobPropRef.StoredInstance.ContentType = props.Value.ContentType;
+
+            // Delete the old blob(s). These will exist if the blob's filename changed, so we need to remove them.
+
+            foreach (var oldBlob in oldBlobPaths)
+            {
+                if (oldBlob == blobPath)
+                    continue;
+
+                await containerClient.GetBlobClient(oldBlob).DeleteIfExistsAsync();
+            }
         }
 
         private async Task<Stream> GetBlobStreamFromAzureBlobStorage(string rowKey, string partitionKey, string flattenedPropertyName, string filename)
@@ -670,7 +714,8 @@ namespace AzureTableDataStore
             return mergedPropertyNames;
         }
 
-        public async Task MergeAsync(bool useBatching, Expression<Func<TData, object>> selectMergedPropertiesExpression, params TData[] entities)
+        public async Task MergeAsync(bool useBatching, Expression<Func<TData, object>> selectMergedPropertiesExpression, 
+            LargeBlobNullBehavior largeBlobNullBehavior = LargeBlobNullBehavior.IgnoreProperty, params TData[] entities)
         {
 
             if (entities == null || entities.Length == 0)
@@ -681,23 +726,23 @@ namespace AzureTableDataStore
             switch (entities.Length)
             {
                 case 1:
-                    await MergeOneAsync(mergedPropertyNames, new DataStoreEntity<TData>("*", entities.First()));
+                    await MergeOneAsync(mergedPropertyNames, new DataStoreEntity<TData>("*", entities.First()), largeBlobNullBehavior);
                     break;
                 default:
                     if (useBatching) await MergeBatchedAsync(mergedPropertyNames, entities.Select(x => new DataStoreEntity<TData>("*", x)).ToArray());
-                    else await MergeMultipleAsync(mergedPropertyNames, entities.Select(x => new DataStoreEntity<TData>("*", x)).ToArray());
+                    else await MergeMultipleAsync(mergedPropertyNames, entities.Select(x => new DataStoreEntity<TData>("*", x)).ToArray(), largeBlobNullBehavior);
                     return;
             }
             
 
         }
 
-        private async Task MergeOneAsync(List<string> propertyNames, DataStoreEntity<TData> entity)
+        private async Task MergeOneAsync(List<string> propertyNames, DataStoreEntity<TData> entity, LargeBlobNullBehavior largeBlobNullBehavior)
         {
             try
             {
                 var entityKeys = GetEntityKeys(entity.Value);
-                var entityData = ExtractEntityProperties(entity.Value);
+                var entityData = ExtractEntityProperties(entity.Value, true);
                 var tableRef = GetTable();
 
                 var blobPropertiesToUpdate = entityData.BlobPropertyRefs
@@ -744,11 +789,23 @@ namespace AzureTableDataStore
 
                 foreach (var @ref in blobPropertiesToUpdate)
                 {
-                    var stream = await @ref.StoredInstance.AsyncDataStream.Value;
-                    @ref.StoredInstance.Length = stream.Length;
-                    entityData.PropertyDictionary.Add(@ref.FlattenedPropertyName,
-                        EntityProperty.GeneratePropertyForString(
-                            JsonConvert.SerializeObject(@ref.StoredInstance, _jsonSerializerSettings)));
+                    if(@ref.StoredInstance == null && largeBlobNullBehavior == LargeBlobNullBehavior.IgnoreProperty)
+                        continue;
+                    
+                    else if (@ref.StoredInstance == null && largeBlobNullBehavior == LargeBlobNullBehavior.DeleteBlob)
+                    {
+                        entityData.PropertyDictionary.Add(@ref.FlattenedPropertyName,
+                            EntityProperty.GeneratePropertyForString(
+                                JsonConvert.SerializeObject(@ref.StoredInstance, _jsonSerializerSettings)));
+                    }
+                    else
+                    {
+                        var stream = await @ref.StoredInstance.AsyncDataStream.Value;
+                        @ref.StoredInstance.Length = stream.Length;
+                        entityData.PropertyDictionary.Add(@ref.FlattenedPropertyName,
+                            EntityProperty.GeneratePropertyForString(
+                                JsonConvert.SerializeObject(@ref.StoredInstance, _jsonSerializerSettings)));
+                    }
                 }
 
 
@@ -794,7 +851,7 @@ namespace AzureTableDataStore
                 if (blobPropertiesToUpdate.Any())
                 {
                     var uploadTasks = blobPropertiesToUpdate
-                        .Select(x => UploadBlobAndUpdateReference(x, BuildBlobPath(x, entityKeys.partitionKey, entityKeys.rowKey), true)).ToArray();
+                        .Select(x => HandleBlobAndUpdateReference(x, BuildBlobPath(x, entityKeys.partitionKey, entityKeys.rowKey), true, largeBlobNullBehavior)).ToArray();
                     await Task.WhenAll(uploadTasks);
                 }
 
@@ -812,7 +869,7 @@ namespace AzureTableDataStore
             }
         }
 
-        private async Task MergeMultipleAsync(List<string> propertyNames, DataStoreEntity<TData>[] entities)
+        private async Task MergeMultipleAsync(List<string> propertyNames, DataStoreEntity<TData>[] entities, LargeBlobNullBehavior largeBlobNullBehavior)
         {
             var failedEntities = new ConcurrentDictionary<TData, Exception>();
 
@@ -827,7 +884,7 @@ namespace AzureTableDataStore
                 {
                     try
                     {
-                        await MergeOneAsync(propertyNames, x);
+                        await MergeOneAsync(propertyNames, x, largeBlobNullBehavior);
                     }
                     catch (Exception e)
                     {
@@ -1008,7 +1065,8 @@ namespace AzureTableDataStore
 
         }
 
-        public async Task MergeAsync(bool useBatching, Expression<Func<TData, object>> selectMergedPropertiesExpression, params DataStoreEntity<TData>[] entities)
+        public async Task MergeAsync(bool useBatching, Expression<Func<TData, object>> selectMergedPropertiesExpression, 
+            LargeBlobNullBehavior largeBlobNullBehavior = LargeBlobNullBehavior.IgnoreProperty, params DataStoreEntity<TData>[] entities)
         {
             if (entities == null || entities.Length == 0)
                 return;
@@ -1018,11 +1076,11 @@ namespace AzureTableDataStore
             switch (entities.Length)
             {
                 case 1:
-                    await MergeOneAsync(mergedPropertyNames, entities.First());
+                    await MergeOneAsync(mergedPropertyNames, entities.First(), largeBlobNullBehavior);
                     break;
                 default:
                     if (useBatching) await MergeBatchedAsync(mergedPropertyNames, entities);
-                    else await MergeMultipleAsync(mergedPropertyNames, entities);
+                    else await MergeMultipleAsync(mergedPropertyNames, entities, largeBlobNullBehavior);
                     return;
             }
         
@@ -1038,10 +1096,10 @@ namespace AzureTableDataStore
             Dictionary<string, EntityProperty> PropertyDictionary,
             List<ReflectionUtils.PropertyRef<LargeBlob>> BlobPropertyRefs,
             List<ReflectionUtils.PropertyRef<ICollection>> CollectionPropertyRefs
-            ) ExtractEntityProperties(TData entity)
+            ) ExtractEntityProperties(TData entity, bool includeNullBlobs = false)
         {
             var blobPropertyRefs =
-                ReflectionUtils.GatherPropertiesWithBlobsRecursive(entity, EntityPropertyConverterOptions);
+                ReflectionUtils.GatherPropertiesWithBlobsRecursive(entity, EntityPropertyConverterOptions, includeNulls: includeNullBlobs);
             var collectionPropertyRefs =
                 ReflectionUtils.GatherPropertiesWithCollectionsRecursive(entity, EntityPropertyConverterOptions);
             var allSpecialPropertyRefs = blobPropertyRefs.Cast<ReflectionUtils.PropertyRef>()
@@ -1173,6 +1231,11 @@ namespace AzureTableDataStore
         {
             var results = await FindWithMetadataAsyncInternal(queryExpression, selectExpression, limit);
             return results.Select(x => x.Value).ToList();
+        }
+
+        public async Task DeleteTableAsync()
+        {
+            await GetTable().DeleteIfExistsAsync();
         }
 
 

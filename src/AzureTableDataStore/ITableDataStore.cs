@@ -4,6 +4,7 @@ using System.Linq.Expressions;
 using System.Threading.Tasks;
 // ReSharper disable UnusedMember.Global
 
+
 namespace AzureTableDataStore
 {
     /// <summary>
@@ -38,8 +39,12 @@ namespace AzureTableDataStore
         Task InsertAsync(bool useBatching, params TData[] entities);
 
         /// <summary>
-        /// Inserts or replaces entities into Table Storage. When an entity with the same partition and row keys already exist,
+        /// Inserts or replaces entities into Table Storage. When an entity with the same partition and row keys already exists,
         /// it will be replaced.
+        /// <para>
+        /// If the entity has any <see cref="LargeBlob"/> properties, those will have their old blobs replaced by the new ones. If the filename
+        /// changes, the old blob will get deleted. If the new property value is null, then the old blob will get deleted.
+        /// </para>
         /// </summary>
         /// <param name="useBatching">
         /// Enables batch inserts/replaces, which are faster with multiple entities.
@@ -59,7 +64,7 @@ namespace AzureTableDataStore
         /// NOTE: this method assumes ETag: '*' for all entities, and therefore will overwrite indiscriminately.
         /// </para>
         /// <para>
-        /// To use ETags, use <see cref="MergeAsync(bool,System.Linq.Expressions.Expression{System.Func{TData,object}},DataStoreEntity{TData}[])"/>
+        /// To use ETags, use <see cref="MergeAsync(bool,System.Linq.Expressions.Expression{System.Func{TData,object}},LargeBlobNullBehavior,DataStoreEntity{TData}[])"/>
         /// </para>
         /// </summary>
         /// <param name="useBatching">Use batches to update the entity data. Gives better performance when there are
@@ -72,12 +77,25 @@ namespace AzureTableDataStore
         /// An expression to select the properties to merge.
         /// <para>Example: entity => new { entity.Name, entity.Email }</para>
         /// </param>
+        /// <param name="largeBlobNullBehavior">
+        /// <para>
+        /// Defines how to interpret null values in <see cref="LargeBlob"/> properties. Defaults to <see cref="LargeBlobNullBehavior.IgnoreProperty"/>.
+        /// </para>
+        /// <para>
+        /// When the entity has any <see cref="LargeBlob"/> properties, and the behavior is set to <see cref="LargeBlobNullBehavior.DeleteBlob"/>,
+        /// null values in those properties will translate to their existing blobs getting deleted.
+        /// </para>
+        /// <para>
+        /// If the behavior is set to <see cref="LargeBlobNullBehavior.IgnoreProperty"/> then those properties will be
+        /// left untouched by this operation.
+        /// </para>
+        /// </param>
         /// <param name="entities">The entities to update.</param>
         /// <exception cref="AzureTableDataStoreInternalException"></exception>
         /// <exception cref="AzureTableDataStoreSingleOperationException"></exception>
         /// <exception cref="AzureTableDataStoreBatchedOperationException"></exception>
         /// <returns></returns>
-        Task MergeAsync(bool useBatching, Expression<Func<TData, object>> selectMergedPropertiesExpression,
+        Task MergeAsync(bool useBatching, Expression<Func<TData, object>> selectMergedPropertiesExpression, LargeBlobNullBehavior largeBlobNullBehavior = LargeBlobNullBehavior.IgnoreProperty,
             params TData[] entities);
 
         /// <summary>
@@ -101,12 +119,25 @@ namespace AzureTableDataStore
         /// Example: <c>entity => new { entity.UserId, entity.EmployeeType, entity.Contact.Email }</c>
         /// </para>
         /// </param>
+        /// <param name="largeBlobNullBehavior">
+        /// <para>
+        /// Defines how to interpret null values in <see cref="LargeBlob"/> properties. Defaults to <see cref="LargeBlobNullBehavior.IgnoreProperty"/>.
+        /// </para>
+        /// <para>
+        /// When the entity has any <see cref="LargeBlob"/> properties, and the behavior is set to <see cref="LargeBlobNullBehavior.DeleteBlob"/>,
+        /// null values in those properties will translate to their existing blobs getting deleted.
+        /// </para>
+        /// <para>
+        /// If the behavior is set to <see cref="LargeBlobNullBehavior.IgnoreProperty"/> then those properties will be
+        /// left untouched by this operation.
+        /// </para>
+        /// </param>
         /// <param name="entities">The entities to update, wrapped into <see cref="DataStoreEntity{TData}"/> objects to provide ETags.</param>
         /// <exception cref="AzureTableDataStoreInternalException"></exception>
         /// <exception cref="AzureTableDataStoreSingleOperationException"></exception>
         /// <exception cref="AzureTableDataStoreBatchedOperationException"></exception>
         /// <returns></returns>
-        Task MergeAsync(bool useBatching, Expression<Func<TData, object>> selectMergedPropertiesExpression,
+        Task MergeAsync(bool useBatching, Expression<Func<TData, object>> selectMergedPropertiesExpression, LargeBlobNullBehavior largeBlobNullBehavior = LargeBlobNullBehavior.IgnoreProperty,
             params DataStoreEntity<TData>[] entities);
 
         /// <summary>
@@ -290,6 +321,17 @@ namespace AzureTableDataStore
         /// <exception cref="AzureTableDataStoreQueryException"></exception>
         Task<DataStoreEntity<TData>> GetWithMetadataAsync(Expression<Func<TData, DateTimeOffset, bool>> queryExpression, Expression<Func<TData, object>> selectExpression = null);
 
+        /// <summary>
+        /// Deletes the entire source table, effectively deleting all its contents.
+        /// </summary>
+        /// <returns></returns>
+        Task DeleteTableAsync();
+
+        /// <summary>
+        /// Deletes entities from table. If these entities also contain blobs
+        /// </summary>
+        /// <param name="entities"></param>
+        /// <returns></returns>
         //Task DeleteAsync(params TData[] entities);
         //Task DeleteAsync(params string[] ids);
         //Task DeleteAsync(Expression<Func<TData, bool>> queryExpression);
