@@ -150,6 +150,7 @@ namespace AzureTableDataStore
                 case TypeCode.UInt64:
                     return ((ulong)value).ToString(ic);
                 case TypeCode.Object:
+                    if(value is DateTimeOffset) return $"datetime'{((DateTimeOffset)value):o}'";
                     throw new NotImplementedException("Unsupported type: Object conversion to string for queries not supported");
             }
 

@@ -374,12 +374,19 @@ namespace AzureTableDataStore
         private string BuildBlobPath(ReflectionUtils.PropertyRef<LargeBlob> blobPropRef, string partitionKey,
             string rowKey)
         {
+            return BuildBlobPath(_configuration.StorageTableName, partitionKey, rowKey,
+                blobPropRef.FlattenedPropertyName, blobPropRef.StoredInstance?.Filename ?? "");
+        }
+
+        internal string BuildBlobPath(string storageTableName, string partitionKey, string rowKey,
+            string flattenedPropertyName, string filename)
+        {
             return string.Join("/",
                 _configuration.StorageTableName,
                 partitionKey,
                 rowKey,
-                blobPropRef.FlattenedPropertyName,
-                blobPropRef.StoredInstance?.Filename ?? "");
+                flattenedPropertyName,
+                filename);
         }
 
         private async Task HandleBlobAndUpdateReference(ReflectionUtils.PropertyRef<LargeBlob> blobPropRef, string blobPath, bool allowReplace, LargeBlobNullBehavior largeBlobNullBehavior)
@@ -1291,9 +1298,11 @@ namespace AzureTableDataStore
                     propInfo.SourceObject = CreateObjectHierarchyForProperty(converted, flattenedPropName);
 
                 propInfo.Property.SetValue(propInfo.SourceObject, deserializedValue);
-                var filename = deserializedValue.Filename;
-
-                deserializedValue.AsyncDataStream = new Lazy<Task<Stream>>(() => GetBlobStreamFromAzureBlobStorage(rowKey, partitionKey, flattenedPropName, filename));
+                if (deserializedValue != null)
+                {
+                    var filename = deserializedValue.Filename; 
+                    deserializedValue.AsyncDataStream = new Lazy<Task<Stream>>(() => GetBlobStreamFromAzureBlobStorage(rowKey, partitionKey, flattenedPropName, filename));
+                }
             }
 
             foreach (var value in collRefPropertyValues)

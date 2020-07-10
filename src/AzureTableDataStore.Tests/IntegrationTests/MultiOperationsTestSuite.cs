@@ -3,6 +3,7 @@ using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using Azure.Storage.Blobs.Models;
+using AzureTableDataStore.Tests.Infrastructure;
 using AzureTableDataStore.Tests.Models;
 using FluentAssertions;
 using Xunit;
@@ -14,10 +15,12 @@ namespace AzureTableDataStore.Tests.IntegrationTests
     {
 
         private StorageContextFixture _storageContextFixture;
+        private BlobStorageAssertions _blobStorageAssertions;
 
         public MultiOperationsTestSuite(StorageContextFixture fixture)
         {
             _storageContextFixture = fixture;
+            _blobStorageAssertions = new BlobStorageAssertions(fixture.ConnectionString, fixture.TableAndContainerName);
         }
 
         public TableDataStore<TelescopePackageProduct> GetTelescopeStore()
@@ -174,9 +177,112 @@ namespace AzureTableDataStore.Tests.IntegrationTests
 
         }
 
+        [Fact(/*Skip = "reason"*/)]
+        public async Task T04_MergeMultiple_NonBatched_WithBlobs_UsingDeleteNullBehavior()
+        {
+            // Relies on T01 insert.
+
+            // Arrange
+
+            var store = GetTelescopeStore();
+            var testDataSet = await store.FindAsync((x, dt) => dt < DateTime.UtcNow);
+
+            testDataSet.Count.Should().Be(4);
+
+            // Images for Telescope 1 and Telescope 2 should get deleted, while new ones should be added for 3 and 4.
+
+            var newBlobFor3 = new LargeBlob("newimage.png", () => new FileStream("Resources/meade-telescope-n-2001000-lx85-goto.png", FileMode.Open, FileAccess.Read));
+            var newBlobFor4 = new LargeBlob("newimage.png", () => new FileStream("Resources/meade-telescope-n-2001000-lx85-goto.png", FileMode.Open, FileAccess.Read));
+
+            var mainImageFilename1 = testDataSet[0].MainImage.Filename;
+            var mainImageFilename2 = testDataSet[1].MainImage.Filename;
+            var mainImageFilename3 = newBlobFor3.Filename;
+            var mainImageFilename4 = newBlobFor4.Filename;
+
+            var blobPath1 = store.BuildBlobPath(_storageContextFixture.TableAndContainerName, testDataSet[0].CategoryId,
+                testDataSet[0].ProductId, "MainImage", mainImageFilename1);
+            var blobPath2 = store.BuildBlobPath(_storageContextFixture.TableAndContainerName, testDataSet[1].CategoryId,
+                testDataSet[1].ProductId, "MainImage", mainImageFilename2);
+            var blobPath3 = store.BuildBlobPath(_storageContextFixture.TableAndContainerName, testDataSet[2].CategoryId,
+                testDataSet[2].ProductId, "MainImage", mainImageFilename3);
+            var blobPath4 = store.BuildBlobPath(_storageContextFixture.TableAndContainerName, testDataSet[3].CategoryId,
+                testDataSet[3].ProductId, "MainImage", mainImageFilename4);
+
+            _blobStorageAssertions.BlobExists(blobPath1);
+            _blobStorageAssertions.BlobExists(blobPath2);
+            _blobStorageAssertions.BlobDoesNotExist(blobPath3);
+            _blobStorageAssertions.BlobDoesNotExist(blobPath4);
+
+            testDataSet[0].Name = "Telescope 1";
+            testDataSet[0].Description = "Changed";
+            testDataSet[0].MainImage = null;
+            testDataSet[1].Name = "Telescope 2";
+            testDataSet[1].Description = "Changed";
+            testDataSet[1].MainImage = null;
+            testDataSet[2].Name = "Telescope 3";
+            testDataSet[2].Description = "Changed";
+            testDataSet[2].MainImage = newBlobFor3;
+            testDataSet[3].Name = "Telescope 4";
+            testDataSet[3].Description = "Changed";
+            testDataSet[3].MainImage = newBlobFor4;
+
+            // Act
+
+            await store.MergeAsync(false, x => new
+            {
+                x.MainImage,
+                x.Name,
+                x.Description
+            }, LargeBlobNullBehavior.DeleteBlob, testDataSet.ToArray());
+
+
+            // Assert
+
+            _blobStorageAssertions.BlobExists(blobPath3);
+            _blobStorageAssertions.BlobExists(blobPath4);
+            _blobStorageAssertions.BlobDoesNotExist(blobPath1);
+            _blobStorageAssertions.BlobDoesNotExist(blobPath2);
+
+        }
 
         [Fact(/*Skip = "reason"*/)]
-        public async Task T04_MergeMultiple_Batched_UsingEtags_SelectedProperties()
+        public async Task T05_ReplaceMultiple_NonBatched_ShouldDeleteBlobsWhenPropertiesSetToNull()
+        {
+            // Relies on T01 insert.
+
+            // Arrange
+
+            var store = GetTelescopeStore();
+
+            var allItems = await store.FindAsync((x, dt) => dt < DateTimeOffset.UtcNow);
+
+            allItems.Count.Should().Be(4);
+
+            // We're gonna set the MainImages to null, and this should cause the deletion of the blobs already uploaded to storage.
+
+            var blobPath3 = store.BuildBlobPath(_storageContextFixture.TableAndContainerName, allItems[2].CategoryId,
+                allItems[2].ProductId, "MainImage", allItems[2].MainImage.Filename);
+            var blobPath4 = store.BuildBlobPath(_storageContextFixture.TableAndContainerName, allItems[3].CategoryId,
+                allItems[3].ProductId, "MainImage", allItems[3].MainImage.Filename);
+
+            _blobStorageAssertions.BlobExists(blobPath3);
+            _blobStorageAssertions.BlobExists(blobPath4);
+
+            allItems[2].MainImage = null;
+            allItems[2].Name = "Replaced 3";
+            allItems[3].MainImage = null;
+            allItems[3].Name = "Replaced 4";
+
+            await store.InsertOrReplaceAsync(false, allItems.Skip(2).Take(2).ToArray());
+
+            _blobStorageAssertions.BlobDoesNotExist(blobPath3);
+            _blobStorageAssertions.BlobDoesNotExist(blobPath4);
+
+        }
+
+
+        [Fact(/*Skip = "reason"*/)]
+        public async Task T06_MergeMultiple_Batched_UsingEtags_SelectedProperties()
         {
             // Relies on T01 insert.
 
@@ -227,7 +333,7 @@ namespace AzureTableDataStore.Tests.IntegrationTests
         }
 
         [Fact(/*Skip = "reason"*/)]
-        public async Task T05_Find_WithStringComparison()
+        public async Task T07_Find_WithStringComparison()
         {
             // Arrange
 
@@ -240,7 +346,7 @@ namespace AzureTableDataStore.Tests.IntegrationTests
         }
 
         [Fact(/*Skip = "reason"*/)]
-        public async Task T06_FindWithMetadata()
+        public async Task T08_FindWithMetadata()
         {
             // Arrange
 
@@ -253,7 +359,7 @@ namespace AzureTableDataStore.Tests.IntegrationTests
         }
 
         [Fact(/*Skip = "reason"*/)]
-        public async Task T07_FindWithMetadata_WithDate()
+        public async Task T09_FindWithMetadata_WithDate()
         {
             // Arrange
 
@@ -266,7 +372,7 @@ namespace AzureTableDataStore.Tests.IntegrationTests
         }
 
         [Fact(/*Skip = "reason"*/)]
-        public async Task T08_InsertHugeBatch_WithoutBlobs()
+        public async Task T10_InsertHugeBatch_WithoutBlobs()
         {
             // Arrange
 
@@ -288,7 +394,7 @@ namespace AzureTableDataStore.Tests.IntegrationTests
         }
 
         [Fact(/*Skip = "reason"*/)]
-        public async Task T09_InsertBatches_WithVeryLargeContent_WithoutBlobs()
+        public async Task T11_InsertBatches_WithVeryLargeContent_WithoutBlobs()
         {
             // Arrange
 
@@ -319,7 +425,7 @@ namespace AzureTableDataStore.Tests.IntegrationTests
         }
 
         [Fact(/*Skip = "reason"*/)]
-        public async Task T10_InsertBatches_RaisingExceptionsFromValidation_WithoutBlobs()
+        public async Task T12_InsertBatches_RaisingExceptionsFromValidation_WithoutBlobs()
         {
             // Arrange
 
