@@ -40,7 +40,7 @@ namespace AzureTableDataStore.Tests.IntegrationTests
 
             // Act
 
-            await store.InsertAsync(false, testDataSet.ToArray());
+            await store.InsertAsync(BatchingMode.None, testDataSet.ToArray());
 
             // Assert
 
@@ -151,7 +151,7 @@ namespace AzureTableDataStore.Tests.IntegrationTests
 
             // Act
 
-            await store.MergeAsync(false, x => new
+            await store.MergeAsync(BatchingMode.None, x => new
             {
                 x.MainImage,
                 x.Name,
@@ -228,7 +228,7 @@ namespace AzureTableDataStore.Tests.IntegrationTests
 
             // Act
 
-            await store.MergeAsync(false, x => new
+            await store.MergeAsync(BatchingMode.None, x => new
             {
                 x.MainImage,
                 x.Name,
@@ -273,7 +273,7 @@ namespace AzureTableDataStore.Tests.IntegrationTests
             allItems[3].MainImage = null;
             allItems[3].Name = "Replaced 4";
 
-            await store.InsertOrReplaceAsync(false, allItems.Skip(2).Take(2).ToArray());
+            await store.InsertOrReplaceAsync(BatchingMode.None, allItems.Skip(2).Take(2).ToArray());
 
             _blobStorageAssertions.BlobDoesNotExist(blobPath3);
             _blobStorageAssertions.BlobDoesNotExist(blobPath4);
@@ -282,7 +282,7 @@ namespace AzureTableDataStore.Tests.IntegrationTests
 
 
         [Fact(/*Skip = "reason"*/)]
-        public async Task T06_MergeMultiple_Batched_UsingEtags_SelectedProperties()
+        public async Task T06_MergeMultiple_StrictBatched_UsingEtags_SelectedProperties()
         {
             // Relies on T01 insert.
 
@@ -309,9 +309,9 @@ namespace AzureTableDataStore.Tests.IntegrationTests
             telescopes[1].Value.Description = "Changed 2";
             telescopes[2].Value.Description = "Changed 2";
 
-            // Here the LargeBlobNullBehavior.IgnoreProperty is meaningless, since the property is not selected for merging.
+            // For Strict mode with entities having LargeBlob properties, LargeBlobNullBehavior must always be set to IgnoreProperty.
 
-            await store.MergeAsync(true, x => new
+            await store.MergeAsync(BatchingMode.Strict, x => new
             {
                 x.Name,
                 x.Description
@@ -372,7 +372,7 @@ namespace AzureTableDataStore.Tests.IntegrationTests
         }
 
         [Fact(/*Skip = "reason"*/)]
-        public async Task T10_InsertHugeBatch_WithoutBlobs()
+        public async Task T10_InsertHugeBatch_StrongMode_WithoutBlobs()
         {
             // Arrange
 
@@ -388,13 +388,13 @@ namespace AzureTableDataStore.Tests.IntegrationTests
             // Act
 
             // 7500 to partition 1, and 2500 to partition 2, with 100 per batch. 100 batches.
-            await store.InsertAsync(true, itemsToAdd);
+            await store.InsertAsync(BatchingMode.Strong, itemsToAdd);
 
             // Should not throw.
         }
 
         [Fact(/*Skip = "reason"*/)]
-        public async Task T11_InsertBatches_WithVeryLargeContent_WithoutBlobs()
+        public async Task T11_InsertBatches_WithVeryLargeEntityContent_StrongMode_WithoutBlobs()
         {
             // Arrange
 
@@ -419,7 +419,7 @@ namespace AzureTableDataStore.Tests.IntegrationTests
 
             // Act
 
-            await store.InsertAsync(true, itemsToAdd);
+            await store.InsertAsync(BatchingMode.Strong, itemsToAdd);
 
             // Should not throw, should succeed by splitting the content into multiple batches.
         }
@@ -451,9 +451,14 @@ namespace AzureTableDataStore.Tests.IntegrationTests
 
             // Client side validation should catch this early.
 
-            var exception = await Assert.ThrowsAsync<AzureTableDataStoreEntityValidationException>(() => store.InsertAsync(true, itemsToAdd));
+            var exception = await Assert.ThrowsAsync<AzureTableDataStoreBatchedOperationException<TelescopePackageProduct>>(
+                () => store.InsertAsync(BatchingMode.Strong, itemsToAdd));
 
-            exception.EntityValidationErrors.Count.Should().Be(3);
+            exception.InnerException.Should()
+                .BeOfType<AzureTableDataStoreEntityValidationException<TelescopePackageProduct>>();
+            ((AzureTableDataStoreEntityValidationException<TelescopePackageProduct>)exception.InnerException)
+                .EntityValidationErrors.Count.Should().Be(3);
+            
 
         }
 

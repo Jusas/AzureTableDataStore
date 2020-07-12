@@ -1202,7 +1202,7 @@ namespace AzureTableDataStore
                     }
                 }
 
-                entityPartitionGroups = entities.GroupBy(x => _entityTypePartitionKeyPropertyInfo.GetValue(x))
+                entityPartitionGroups = entities.GroupBy(x => _entityTypePartitionKeyPropertyInfo.GetValue(x.Value))
                     .ToDictionary(x => (string) x.Key, x => x.ToList());
 
                 // Again, if using Strict batching mode, we may only have entities from the same partition.
@@ -1211,6 +1211,16 @@ namespace AzureTableDataStore
                 {
                     throw new AzureTableDataStoreInternalException(
                         "Strict batching mode requires all entities to have the same partition key.");
+                }
+
+                // The idea of trying to delete blobs when LargeBlobs are set to null is incompatible with Strict
+                // and Strong batching modes. No blob operations whatsoever in these modes.
+
+                if (batchingMode != BatchingMode.Loose && largeBlobNullBehavior != LargeBlobNullBehavior.IgnoreProperty)
+                {
+                    throw new AzureTableDataStoreInternalException(
+                        "Strict and Strong batching modes cannot perform any Blob operations," +
+                        "largeBlobNullBehavior must be set to IgnoreProperty with these batching modes.");
                 }
             }
             catch (Exception e)

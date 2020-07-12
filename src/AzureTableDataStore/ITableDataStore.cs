@@ -32,37 +32,44 @@ namespace AzureTableDataStore
         /// Strict batching, i.e. Transaction mode.
         /// <para>
         /// All entity operations must fit into a single batch, which will then be executed
-        /// as a Transaction "all or nothing". Can be performed for 2-100 entities, and be within Azure Table Storage limit of max. 4MB batch size.
+        /// as a Transaction "all or nothing". Can be performed for 1-100 entities, and be within Azure Table Storage limit of max. 4MB batch size.
         /// </para>
         /// <para>
         /// As per Azure Table Storage batch rules, all entities in the batch must sit in the same partition.
         /// </para>
         /// <para>
         /// NOTE: Cannot be used with operations that contain entities with <see cref="LargeBlob"/> properties, with
-        /// the exception of inserts where strict batching can be used when all <see cref="LargeBlob"/> properties are set to non-null.
+        /// the exception of inserts and merges where strong batching can be used when all <see cref="LargeBlob"/> properties are set to non-null,
+        /// and <see cref="LargeBlobNullBehavior"/> is set to <see cref="LargeBlobNullBehavior.IgnoreProperty"/>.
         /// </para>
         /// </summary>
         Strict,
 
         /// <summary>
-        /// Strong batching, i.e. Transaction mode with multiple sub-batches allowed. In this mode entity operations can be performed in batches.
+        /// Strong batching, i.e. multi-batch Transaction mode with multiple partition keys allowed. In this mode entity operations are performed in sub-batches of 1-100 entities,
+        /// and there is no limit on the number of entities.
         /// <para>
-        /// Entity operations can grouped to batches of 2-100 entities per table operation batch, when sent to the Table API, as per Azure Table Storage limits.
-        /// Note that batches exceeding those limits will be split into smaller batches, and each of those operation batches are guaranteed to be "all or nothing".
+        /// Operations are grouped into batches by partition key with 1-100 entities per table operation sub-batch when sent to the Table API, as per Azure Table Storage operation limits.
+        /// Each of these operation sub-batches are guaranteed to be "all or nothing", transaction like. Errors are tracked on sub-batch level, and one sub-batch failure does not stop execution.
         /// </para>
         /// <para>
         /// NOTE: Cannot be used with operations that contain entities with <see cref="LargeBlob"/> properties, with
-        /// the exception of inserts where strong batching can be used when all <see cref="LargeBlob"/> properties are set to non-null.
+        /// the exception of inserts and merges where strong batching can be used when all <see cref="LargeBlob"/> properties are set to non-null,
+        /// and <see cref="LargeBlobNullBehavior"/> is set to <see cref="LargeBlobNullBehavior.IgnoreProperty"/>.
         /// </para>
         /// </summary>
         Strong,
 
         /// <summary>
-        /// Loose batching, which can be used with any entities. Performs Table operations in batches but any Blob storage operations
-        /// are performed separately. Enables performance at the cost of data integrity.
+        /// Loose batching, which can be used with any number of entities and multiple partition keys are allowed. Performs Table operations in sub-batches of 1-100 entities and each batch is followed by
+        /// related Blob Storage operations for <see cref="LargeBlob"/> properties. Errors are tracked on sub-batch level, and one sub-batch failure does not stop execution.
+        /// Errors are available in any raised exception.
         /// <para>
-        /// Entity operations are grouped to batches when possible. Related blob operations for entities with with <see cref="LargeBlob"/> properties are performed
-        /// individually, are not guaranteed to be executed in any specific order and may fail, which in case of errors may leave the state of some entities inconsistent.
+        /// Blob operations related to each entity sub-batch are performed after each Table operation sub-batch if the sub-batch operation succeeds. Any of them may fail, in which case
+        /// the state of some entities will be left inconsistent. Blob operation errors are tracked on individual <see cref="LargeBlob"/> and entity level and will be available in any raised exception.
+        /// </para>
+        /// <para>
+        /// This mode enables performance at the cost of data integrity.
         /// </para>
         /// </summary>
         Loose

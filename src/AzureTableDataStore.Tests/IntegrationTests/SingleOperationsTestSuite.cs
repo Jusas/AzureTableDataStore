@@ -37,7 +37,7 @@ namespace AzureTableDataStore.Tests.IntegrationTests
             // Act
 
             var store = GetTelescopeStore();
-            await store.InsertAsync(false, newItem);
+            await store.InsertAsync(BatchingMode.None, newItem);
 
             // No assertions (assume ok if no exceptions thrown)
         }
@@ -183,7 +183,7 @@ namespace AzureTableDataStore.Tests.IntegrationTests
             item.Name = "replaced";
             item.Specifications.Mount.Type = "replaced";
             
-            await store.InsertOrReplaceAsync(false, item);
+            await store.InsertOrReplaceAsync(BatchingMode.None, item);
 
             var fromTable = await store.GetAsync(x => x.ProductId == item.ProductId);
 

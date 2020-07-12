@@ -25,7 +25,7 @@ namespace AzureTableDataStore.Tests.IntegrationTests
 
             // EntityWithLargeBlobsOnly.Blobs is an object that only holds blobs, which will force us to create the intermediate object "Blobs". This is mainly what we test here.
 
-            await store.InsertAsync(false, new EntityWithLargeBlobsOnly()
+            await store.InsertAsync(BatchingMode.None, new EntityWithLargeBlobsOnly()
             {
                 EntityKey = "key",
                 PartitionKey = "pkey",
