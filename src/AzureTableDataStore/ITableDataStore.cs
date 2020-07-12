@@ -19,6 +19,56 @@ namespace AzureTableDataStore
     }
 
     /// <summary>
+    /// The selected batching mode to use when performing multiple Insert/Merge/Replace operations.
+    /// </summary>
+    public enum BatchingMode
+    {
+        /// <summary>
+        /// No batching. Perform each operation individually. Multiple operations can be performed in parallel.
+        /// </summary>
+        None,
+
+        /// <summary>
+        /// Strict batching, i.e. Transaction mode.
+        /// <para>
+        /// All entity operations must fit into a single batch, which will then be executed
+        /// as a Transaction "all or nothing". Can be performed for 2-100 entities, and be within Azure Table Storage limit of max. 4MB batch size.
+        /// </para>
+        /// <para>
+        /// As per Azure Table Storage batch rules, all entities in the batch must sit in the same partition.
+        /// </para>
+        /// <para>
+        /// NOTE: Cannot be used with operations that contain entities with <see cref="LargeBlob"/> properties, with
+        /// the exception of inserts where strict batching can be used when all <see cref="LargeBlob"/> properties are set to non-null.
+        /// </para>
+        /// </summary>
+        Strict,
+
+        /// <summary>
+        /// Strong batching, i.e. Transaction mode with multiple sub-batches allowed. In this mode entity operations can be performed in batches.
+        /// <para>
+        /// Entity operations can grouped to batches of 2-100 entities per table operation batch, when sent to the Table API, as per Azure Table Storage limits.
+        /// Note that batches exceeding those limits will be split into smaller batches, and each of those operation batches are guaranteed to be "all or nothing".
+        /// </para>
+        /// <para>
+        /// NOTE: Cannot be used with operations that contain entities with <see cref="LargeBlob"/> properties, with
+        /// the exception of inserts where strong batching can be used when all <see cref="LargeBlob"/> properties are set to non-null.
+        /// </para>
+        /// </summary>
+        Strong,
+
+        /// <summary>
+        /// Loose batching, which can be used with any entities. Performs Table operations in batches but any Blob storage operations
+        /// are performed separately. Enables performance at the cost of data integrity.
+        /// <para>
+        /// Entity operations are grouped to batches when possible. Related blob operations for entities with with <see cref="LargeBlob"/> properties are performed
+        /// individually, are not guaranteed to be executed in any specific order and may fail, which in case of errors may leave the state of some entities inconsistent.
+        /// </para>
+        /// </summary>
+        Loose
+    }
+
+    /// <summary>
     /// Interface for the <see cref="TableDataStore{TData}"/>.
     /// </summary>
     /// <typeparam name="TData">The entity type that is stored in the Azure Storage Table.</typeparam>
@@ -27,16 +77,15 @@ namespace AzureTableDataStore
         /// <summary>
         /// Inserts new entities into Table Storage.
         /// </summary>
-        /// <param name="useBatching">
-        /// Enables batch inserts, which are faster when inserting multiple entities.
-        /// <para>Batch inserts are not available for entities with <see cref="LargeBlob"/> properties.</para>
+        /// <param name="batchingMode">
+        /// Chooses the batching mode to use when there are multiple entities.
         /// </param>
-        /// <param name="entities">One ore more entities to insert of the <see cref="TData"/> type.</param>
-        /// <exception cref="AzureTableDataStoreInternalException"></exception>
-        /// <exception cref="AzureTableDataStoreSingleOperationException"></exception>
-        /// <exception cref="AzureTableDataStoreBatchedOperationException"></exception>
+        /// <param name="entities">One ore more entities to insert of the <typeparamref name="TData"/> type.</param>
+        /// <exception cref="AzureTableDataStoreSingleOperationException{TData}"></exception>
+        /// <exception cref="AzureTableDataStoreBatchedOperationException{TData}"></exception>
+        /// <exception cref="AzureTableDataStoreMultiOperationException{TData}"></exception>
         /// <returns></returns>
-        Task InsertAsync(bool useBatching, params TData[] entities);
+        Task InsertAsync(BatchingMode batchingMode, params TData[] entities);
 
         /// <summary>
         /// Inserts or replaces entities into Table Storage. When an entity with the same partition and row keys already exists,
@@ -46,16 +95,15 @@ namespace AzureTableDataStore
         /// changes, the old blob will get deleted. If the new property value is null, then the old blob will get deleted.
         /// </para>
         /// </summary>
-        /// <param name="useBatching">
-        /// Enables batch inserts/replaces, which are faster with multiple entities.
-        /// <para>Batching is not available for entity types with <see cref="LargeBlob"/> properties.</para>
+        /// <param name="batchingMode">
+        /// Chooses the batching mode to use when there are multiple entities.
         /// </param>
         /// <param name="entities">One or more entities to insert/replace</param>
-        /// <exception cref="AzureTableDataStoreInternalException"></exception>
-        /// <exception cref="AzureTableDataStoreSingleOperationException"></exception>
-        /// <exception cref="AzureTableDataStoreBatchedOperationException"></exception>
+        /// <exception cref="AzureTableDataStoreSingleOperationException{TData}"></exception>
+        /// <exception cref="AzureTableDataStoreBatchedOperationException{TData}"></exception>
+        /// <exception cref="AzureTableDataStoreMultiOperationException{TData}"></exception>
         /// <returns></returns>
-        Task InsertOrReplaceAsync(bool useBatching, params TData[] entities);
+        Task InsertOrReplaceAsync(BatchingMode batchingMode, params TData[] entities);
 
         /// <summary>
         /// Merges (aka updates) the property values from the provided entities using the properties
@@ -64,14 +112,11 @@ namespace AzureTableDataStore
         /// NOTE: this method assumes ETag: '*' for all entities, and therefore will overwrite indiscriminately.
         /// </para>
         /// <para>
-        /// To use ETags, use <see cref="MergeAsync(bool,System.Linq.Expressions.Expression{System.Func{TData,object}},LargeBlobNullBehavior,DataStoreEntity{TData}[])"/>
+        /// To use ETags, use <see cref="MergeAsync(BatchingMode,System.Linq.Expressions.Expression{System.Func{TData,object}},LargeBlobNullBehavior,DataStoreEntity{TData}[])"/>
         /// </para>
         /// </summary>
-        /// <param name="useBatching">Use batches to update the entity data. Gives better performance when there are
-        /// a lot of entities to update.
-        /// <para>
-        /// Batching cannot be used for updating <see cref="LargeBlob"/> properties as that cannot be done as a transaction.
-        /// </para>
+        /// <param name="batchingMode">
+        /// Chooses the batching mode to use when there are multiple entities.
         /// </param>
         /// <param name="selectMergedPropertiesExpression">
         /// An expression to select the properties to merge.
@@ -91,11 +136,11 @@ namespace AzureTableDataStore
         /// </para>
         /// </param>
         /// <param name="entities">The entities to update.</param>
-        /// <exception cref="AzureTableDataStoreInternalException"></exception>
-        /// <exception cref="AzureTableDataStoreSingleOperationException"></exception>
-        /// <exception cref="AzureTableDataStoreBatchedOperationException"></exception>
+        /// <exception cref="AzureTableDataStoreSingleOperationException{TData}"></exception>
+        /// <exception cref="AzureTableDataStoreBatchedOperationException{TData}"></exception>
+        /// <exception cref="AzureTableDataStoreMultiOperationException{TData}"></exception>
         /// <returns></returns>
-        Task MergeAsync(bool useBatching, Expression<Func<TData, object>> selectMergedPropertiesExpression, LargeBlobNullBehavior largeBlobNullBehavior = LargeBlobNullBehavior.IgnoreProperty,
+        Task MergeAsync(BatchingMode batchingMode, Expression<Func<TData, object>> selectMergedPropertiesExpression, LargeBlobNullBehavior largeBlobNullBehavior = LargeBlobNullBehavior.IgnoreProperty,
             params TData[] entities);
 
         /// <summary>
@@ -106,12 +151,8 @@ namespace AzureTableDataStore
         /// the merge can be made.
         /// </para>
         /// </summary>
-        /// <param name="useBatching">Use batches to update the entity data. Gives better performance when there are
-        /// a lot of entities to update.
-        /// <para>
-        /// Batching cannot be used for updating <see cref="LargeBlob"/> properties as that cannot be done as a transaction. However if the
-        /// LargeBlob properties are not selected for the merge, batching can be used.
-        /// </para>
+        /// <param name="batchingMode">
+        /// Chooses the batching mode to use when there are multiple entities.
         /// </param>
         /// <param name="selectMergedPropertiesExpression">
         /// An expression to select the properties to merge.
@@ -133,11 +174,11 @@ namespace AzureTableDataStore
         /// </para>
         /// </param>
         /// <param name="entities">The entities to update, wrapped into <see cref="DataStoreEntity{TData}"/> objects to provide ETags.</param>
-        /// <exception cref="AzureTableDataStoreInternalException"></exception>
-        /// <exception cref="AzureTableDataStoreSingleOperationException"></exception>
-        /// <exception cref="AzureTableDataStoreBatchedOperationException"></exception>
+        /// <exception cref="AzureTableDataStoreSingleOperationException{TData}"></exception>
+        /// <exception cref="AzureTableDataStoreBatchedOperationException{TData}"></exception>
+        /// <exception cref="AzureTableDataStoreMultiOperationException{TData}"></exception>
         /// <returns></returns>
-        Task MergeAsync(bool useBatching, Expression<Func<TData, object>> selectMergedPropertiesExpression, LargeBlobNullBehavior largeBlobNullBehavior = LargeBlobNullBehavior.IgnoreProperty,
+        Task MergeAsync(BatchingMode batchingMode, Expression<Func<TData, object>> selectMergedPropertiesExpression, LargeBlobNullBehavior largeBlobNullBehavior = LargeBlobNullBehavior.IgnoreProperty,
             params DataStoreEntity<TData>[] entities);
 
         /// <summary>
@@ -158,7 +199,6 @@ namespace AzureTableDataStore
         /// <param name="limit">
         /// The maximum number of limits to return. If null, does not limit the number of results.
         /// </param>
-        /// <exception cref="AzureTableDataStoreInternalException"></exception>
         /// <exception cref="AzureTableDataStoreQueryException"></exception>
         Task<IList<TData>> FindAsync(Expression<Func<TData, bool>> queryExpression, Expression<Func<TData, object>> selectExpression = null, int? limit = null);
 
@@ -180,7 +220,6 @@ namespace AzureTableDataStore
         /// </param>
         /// <param name="limit">The maximum number of limits to return. If null, does not limit the number of results.</param>
         /// <returns></returns>
-        /// <exception cref="AzureTableDataStoreInternalException"></exception>
         /// <exception cref="AzureTableDataStoreQueryException"></exception>
         Task<IList<TData>> FindAsync(Expression<Func<TData, DateTimeOffset, bool>> queryExpression, Expression<Func<TData, object>> selectExpression = null, int? limit = null);
 
@@ -202,7 +241,6 @@ namespace AzureTableDataStore
         /// </param>
         /// <param name="limit">The maximum number of limits to return. If null, does not limit the number of results.</param>
         /// <returns></returns>
-        /// <exception cref="AzureTableDataStoreInternalException"></exception>
         /// <exception cref="AzureTableDataStoreQueryException"></exception>
         Task<IList<DataStoreEntity<TData>>> FindWithMetadataAsync(Expression<Func<TData, bool>> queryExpression, Expression<Func<TData, object>> selectExpression = null, int? limit = null);
 
@@ -227,7 +265,6 @@ namespace AzureTableDataStore
         /// </param>
         /// <param name="limit">The maximum number of limits to return. If null, does not limit the number of results.</param>
         /// <returns></returns>
-        /// <exception cref="AzureTableDataStoreInternalException"></exception>
         /// <exception cref="AzureTableDataStoreQueryException"></exception>
         Task<IList<DataStoreEntity<TData>>> FindWithMetadataAsync(Expression<Func<TData, DateTimeOffset, bool>> queryExpression, Expression<Func<TData, object>> selectExpression = null, int? limit = null);
 
@@ -247,7 +284,6 @@ namespace AzureTableDataStore
         /// </para>
         /// </param>
         /// <returns></returns>
-        /// <exception cref="AzureTableDataStoreInternalException"></exception>
         /// <exception cref="AzureTableDataStoreQueryException"></exception>
         Task<TData> GetAsync(Expression<Func<TData, bool>> queryExpression, Expression<Func<TData, object>> selectExpression = null);
 
@@ -268,7 +304,6 @@ namespace AzureTableDataStore
         /// </para>
         /// </param>
         /// <returns></returns>
-        /// <exception cref="AzureTableDataStoreInternalException"></exception>
         /// <exception cref="AzureTableDataStoreQueryException"></exception>
         Task<TData> GetAsync(Expression<Func<TData, DateTimeOffset, bool>> queryExpression, Expression<Func<TData, object>> selectExpression = null);
 
@@ -292,7 +327,6 @@ namespace AzureTableDataStore
         /// </para>
         /// </param>
         /// <returns></returns>
-        /// <exception cref="AzureTableDataStoreInternalException"></exception>
         /// <exception cref="AzureTableDataStoreQueryException"></exception>
         Task<DataStoreEntity<TData>> GetWithMetadataAsync(Expression<Func<TData, bool>> queryExpression, Expression<Func<TData, object>> selectExpression = null);
 
@@ -317,23 +351,61 @@ namespace AzureTableDataStore
         /// </para>
         /// </param>
         /// <returns></returns>
-        /// <exception cref="AzureTableDataStoreInternalException"></exception>
         /// <exception cref="AzureTableDataStoreQueryException"></exception>
         Task<DataStoreEntity<TData>> GetWithMetadataAsync(Expression<Func<TData, DateTimeOffset, bool>> queryExpression, Expression<Func<TData, object>> selectExpression = null);
 
         /// <summary>
-        /// Deletes the entire source table, effectively deleting all its contents.
+        /// Deletes the entire source table, effectively deleting all its contents, as well as the entire blob container used to store the files.
+        /// <para>
+        /// Note: this action is irreversible.
+        /// </para>
         /// </summary>
         /// <returns></returns>
-        Task DeleteTableAsync();
+        Task DeleteTableAndBlobContainerAsync();
 
         /// <summary>
-        /// Deletes entities from table. If these entities also contain blobs
+        /// Deletes entities from table. If these entities also contain <see cref="LargeBlob"/> properties, those blobs will be deleted.
+        /// <para>
+        /// Note: this action is irreversible.
+        /// </para>
         /// </summary>
-        /// <param name="entities"></param>
+        /// <param name="useBatching">
+        /// Use batches to perform the deletion.
+        /// <para>
+        /// Batching cannot be used for deleting entities with <see cref="LargeBlob"/> properties as that cannot be done as a transaction.
+        /// </para>
+        /// </param>
+        /// <param name="entities">The entities to delete.</param>
         /// <returns></returns>
-        //Task DeleteAsync(params TData[] entities);
-        //Task DeleteAsync(params string[] ids);
+        //Task DeleteAsync(bool useBatching, params TData[] entities);
+
+        /// <summary>
+        /// Deletes entities from table using the specified row and partition keys. If these entities also contain <see cref="LargeBlob"/> properties, those blobs will be deleted.
+        /// <para>
+        /// Note: this action is irreversible.
+        /// </para>
+        /// </summary>
+        /// <param name="useBatching">
+        /// Use batches to perform the deletion.
+        /// <para>
+        /// Batching cannot be used for deleting entities with <see cref="LargeBlob"/> properties as that cannot be done as a transaction.
+        /// </para>
+        /// </param>
+        /// <param name="ids">The entity partition key + row key pairs to delete.</param>
+        /// <returns></returns>
+        //Task DeleteAsync(bool useBatching, params (string rowKey, string partitionKey)[] ids);
+
+        /// <summary>
+        /// Deletes entities from table that match the query expression. If these entities also contain <see cref="LargeBlob"/> properties, those blobs will be deleted.
+        /// <para>
+        /// Effectively performs a query, and then runs batch delete operations on those results.
+        /// </para>
+        /// <para>
+        /// Note: this action is irreversible.
+        /// </para>
+        /// </summary>
+        /// <param name="queryExpression">The query expression used to find entities to delete</param>
+        /// <returns></returns>
         //Task DeleteAsync(Expression<Func<TData, bool>> queryExpression);
         //Task EnumerateAsync(Func<TData, Task> enumeratorFunc);
         //Task EnumerateAsync(Expression<Func<TData, bool>> queryExpression, Func<TData, Task> enumeratorFunc);

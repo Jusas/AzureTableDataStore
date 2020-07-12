@@ -3,36 +3,36 @@ using System.Collections.Generic;
 
 namespace AzureTableDataStore
 {
-    /// <summary>
-    /// Indicates the problem source.
-    /// </summary>
-    public enum ProblemSourceType
-    {
-        /// <summary>
-        /// A general (unspecified, unexpected) exception.
-        /// </summary>
-        General,
+    ///// <summary>
+    ///// Indicates the problem source.
+    ///// </summary>
+    //public enum ProblemSourceType
+    //{
+    //    /// <summary>
+    //    /// A general (unspecified, unexpected) exception.
+    //    /// </summary>
+    //    General,
 
-        /// <summary>
-        /// An exception that is originating from an Azure Table Storage operation.
-        /// </summary>
-        TableStorage,
+    //    /// <summary>
+    //    /// An exception that is originating from an Azure Table Storage operation.
+    //    /// </summary>
+    //    TableStorage,
 
-        /// <summary>
-        /// An exception that is originating from an Azure Blob Storage operation.
-        /// </summary>
-        BlobStorage,
+    //    /// <summary>
+    //    /// An exception that is originating from an Azure Blob Storage operation.
+    //    /// </summary>
+    //    BlobStorage,
 
-        /// <summary>
-        /// A configuration issue.
-        /// </summary>
-        Configuration,
+    //    /// <summary>
+    //    /// A configuration issue.
+    //    /// </summary>
+    //    Configuration,
 
-        /// <summary>
-        /// A data issue.
-        /// </summary>
-        Data
-    }
+    //    /// <summary>
+    //    /// A data issue.
+    //    /// </summary>
+    //    Data
+    //}
 
 
     /// <summary>
@@ -51,19 +51,9 @@ namespace AzureTableDataStore
     /// </summary>
     public class AzureTableDataStoreInternalException : Exception
     {
-        /// <summary>
-        /// The problem source, indicating what was the service or reason triggering this exception.
-        /// </summary>
-        public ProblemSourceType ProblemSource { get; set; }
-
-        public AzureTableDataStoreInternalException(string message, ProblemSourceType problemSource, Exception inner = null) : base(message, inner)
-        {
-            ProblemSource = problemSource;
-        }
 
         public AzureTableDataStoreInternalException(string message, Exception inner = null) : base(message, inner)
         {
-
         }
     }
 
@@ -79,66 +69,125 @@ namespace AzureTableDataStore
     }
 
     /// <summary>
-    /// Exception representing a failure inside an Azure Table Storage batch operation.
+    /// Exception representing a failure when doing Azure Blob Storage operations.
     /// </summary>
-    public class AzureTableDataStoreBatchedOperationException : Exception
+    /// <typeparam name="TData"></typeparam>
+    public class AzureTableDataStoreBlobOperationException<TData> : Exception
     {
         /// <summary>
-        /// A collection of Key-Value pairs of the Exception and the entities contained in the failed batch.
+        /// The source <see cref="LargeBlob"/> that caused the problem.
         /// </summary>
-        public IDictionary<Exception, object[]> FailedBatches { get; internal set; } = new Dictionary<Exception, object[]>();
+        public LargeBlob SourceBlob { get; internal set; }
         
         /// <summary>
-        /// The problem source, indicating what was the service or reason triggering this exception.
+        /// The entity whose blob the blob is.
         /// </summary>
-        public ProblemSourceType ProblemSource { get; set; }
+        public TData SourceEntity { get; internal set; }
+
+        public AzureTableDataStoreBlobOperationException(string message, TData sourceEntity = default, LargeBlob sourceBlob = null, Exception inner = null)
+            : base(message, inner)
+        {
+            SourceEntity = sourceEntity;
+            SourceBlob = sourceBlob;
+        }
+    }
+
+    /// <summary>
+    /// An exception context for a failed Table batch operation. Holds information of the entities
+    /// that were in the operation and lists the different exceptions that occurred.
+    /// </summary>
+    /// <typeparam name="TData">The entity type.</typeparam>
+    public class BatchExceptionContext<TData>
+    {
+        /// <summary>
+        /// A list of any Blob Storage operation exceptions that may have occurred, with details inside each exception.
+        /// </summary>
+        public List<AzureTableDataStoreBlobOperationException<TData>> BlobOperationExceptions { get; } 
+            = new List<AzureTableDataStoreBlobOperationException<TData>>();
+
+        /// <summary>
+        /// The list of entities in the batch that caused the exception(s).
+        /// </summary>
+        public List<TData> BatchEntities { get; internal set; } = new List<TData>();
+
+        /// <summary>
+        /// The Table Storage exception that may have occured. Will be null if only Blob operation exceptions occurred.
+        /// </summary>
+        public Exception TableOperationException { get; internal set; }
+    }
+
+    /// <summary>
+    /// Exception representing a failure or a number of failures that occurred inside a batch operation.
+    /// Any validation exceptions will be set as a collective <see cref="AzureTableDataStoreEntityValidationException{TData}"/> in <see cref="Exception.InnerException"/>.
+    /// </summary>
+    public class AzureTableDataStoreBatchedOperationException<TData> : Exception
+    {
+        /// <summary>
+        /// The exceptions collected into <see cref="BatchExceptionContext{TData}"/> defining each exception's context.
+        /// </summary>
+        public List<BatchExceptionContext<TData>> BatchExceptionContexts { get; internal set; } = 
+            new List<BatchExceptionContext<TData>>();
 
         public AzureTableDataStoreBatchedOperationException(string message, Exception inner = null) : base(message, inner)
         {
         }
 
-        public AzureTableDataStoreBatchedOperationException(string message, ProblemSourceType problemSource, Exception inner = null) : base(message, inner)
-        {
-            ProblemSource = problemSource;
-        }
     }
 
     /// <summary>
     /// Exception representing a failure of a single operation (insert, update, merge, etc).
     /// </summary>
-    public class AzureTableDataStoreSingleOperationException : Exception
+    public class AzureTableDataStoreSingleOperationException<TData> : Exception
     {
-        /// <summary>
-        /// Key-Value pairs of the Exception and the entity that caused it.
-        /// </summary>
-        public IDictionary<Exception, object> FailedEntities { get; internal set; } = new Dictionary<Exception, object>();
+
 
         /// <summary>
-        /// The problem source, indicating what was the service or reason triggering this exception.
+        /// A list of any Blob Storage operation exceptions that may have occurred, with details inside each exception.
         /// </summary>
-        public ProblemSourceType ProblemSource { get; set; }
+        public List<AzureTableDataStoreBlobOperationException<TData>> BlobOperationExceptions { get; }
+            = new List<AzureTableDataStoreBlobOperationException<TData>>();
 
+        /// <summary>
+        /// The entity that caused the exception.
+        /// </summary>
+        public TData Entity { get; internal set; }
+        
         public AzureTableDataStoreSingleOperationException(string message, Exception inner = null) : base(message, inner)
         {
             
         }
 
-        public AzureTableDataStoreSingleOperationException(string message, ProblemSourceType problemSource, Exception inner = null) : base(message, inner)
+    }
+
+    /// <summary>
+    /// Exception representing a failure of a multiple non-batched operations (insert, update, merge, etc).
+    /// </summary>
+    public class AzureTableDataStoreMultiOperationException<TData> : Exception
+    {
+
+        /// <summary>
+        /// A list of single operation exceptions.
+        /// </summary>
+        public List<AzureTableDataStoreSingleOperationException<TData>> SingleOperationExceptions { get; internal set; } 
+            = new List<AzureTableDataStoreSingleOperationException<TData>>();
+        
+        public AzureTableDataStoreMultiOperationException(string message, Exception inner = null) : base(message, inner)
         {
-            ProblemSource = problemSource;
         }
+
+
     }
 
     /// <summary>
     /// Exception representing client side entity validation errors.
     /// </summary>
-    public class AzureTableDataStoreEntityValidationException : Exception
+    public class AzureTableDataStoreEntityValidationException<TData> : Exception
     {
 
         /// <summary>
         /// The validation errors, per entity. Dictionary key is the entity itself.
         /// </summary>
-        public IDictionary<object, List<string>> EntityValidationErrors { get; } = new Dictionary<object, List<string>>();
+        public IDictionary<TData, List<string>> EntityValidationErrors { get; } = new Dictionary<TData, List<string>>();
 
         public AzureTableDataStoreEntityValidationException(string message, Exception inner = null) : base(message, inner)
         {
