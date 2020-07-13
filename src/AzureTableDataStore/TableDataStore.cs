@@ -375,12 +375,13 @@ namespace AzureTableDataStore
             {
                 throw;
             }
-            catch (AzureTableDataStoreEntityValidationException<TData> e)
+            catch (AzureTableDataStoreEntityValidationException<TData>)
             {
-                var ex = new AzureTableDataStoreSingleOperationException<TData>("Operation failed due to validation errors: " + e.Message,
-                    e);
-                ex.Entity = entity;
-                throw ex;
+                //var ex = new AzureTableDataStoreSingleOperationException<TData>("Operation failed due to validation errors: " + e.Message,
+                //    e);
+                //ex.Entity = entity;
+                //throw ex;
+                throw;
             }
             catch (SerializationException e)
             {
@@ -734,15 +735,16 @@ namespace AzureTableDataStore
                 if (validationException.EntityValidationErrors.Any())
                     throw validationException;
             }
-            catch (AzureTableDataStoreEntityValidationException<TData> e)
+            catch (AzureTableDataStoreEntityValidationException<TData>)
             {
-                var ex = new AzureTableDataStoreBatchedOperationException<TData>(
-                    "One or more entities did not pass validation", e);
-                ex.BatchExceptionContexts.Add(new BatchExceptionContext<TData>()
-                {
-                    BatchEntities = entities.ToList()
-                });
-                throw ex;
+                throw;
+                //var ex = new AzureTableDataStoreBatchedOperationException<TData>(
+                //    "One or more entities did not pass validation", e);
+                //ex.BatchExceptionContexts.Add(new BatchExceptionContext<TData>()
+                //{
+                //    BatchEntities = entities.ToList()
+                //});
+                //throw ex;
             }
             catch (SerializationException e)
             {
@@ -1094,12 +1096,13 @@ namespace AzureTableDataStore
                 }
 
             }
-            catch (AzureTableDataStoreEntityValidationException<TData> e)
+            catch (AzureTableDataStoreEntityValidationException<TData>)
             {
-                var ex = new AzureTableDataStoreSingleOperationException<TData>(
-                    "The entity did not pass validation", e);
-                ex.Entity = entity.Value;
-                throw ex;
+                //var ex = new AzureTableDataStoreSingleOperationException<TData>(
+                //    "The entity did not pass validation", e);
+                //ex.Entity = entity.Value;
+                //throw ex;
+                throw;
             }
             catch (AzureTableDataStoreSingleOperationException<TData>)
             {
@@ -1339,15 +1342,16 @@ namespace AzureTableDataStore
                 if (validationException.EntityValidationErrors.Any())
                     throw validationException;
             }
-            catch (AzureTableDataStoreEntityValidationException<TData> e)
+            catch (AzureTableDataStoreEntityValidationException<TData>)
             {
-                var ex = new AzureTableDataStoreBatchedOperationException<TData>(
-                    "One or more entities did not pass validation", e);
-                ex.BatchExceptionContexts.Add(new BatchExceptionContext<TData>()
-                {
-                    BatchEntities = entities.Select(x => x.Value).ToList()
-                });
-                throw ex;
+                //var ex = new AzureTableDataStoreBatchedOperationException<TData>(
+                //    "One or more entities did not pass validation", e);
+                //ex.BatchExceptionContexts.Add(new BatchExceptionContext<TData>()
+                //{
+                //    BatchEntities = entities.Select(x => x.Value).ToList()
+                //});
+                //throw ex;
+                throw;
             }
             catch (SerializationException e)
             {

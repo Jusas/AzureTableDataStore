@@ -68,6 +68,7 @@ namespace AzureTableDataStore
         {
             var bytes = encoding.GetBytes(data);
             Length = bytes.LongLength;
+            Filename = filename;
             AsyncDataStream = new Lazy<Task<Stream>>(() => Task.FromResult((Stream)new MemoryStream(bytes)));
             ContentType = contentType ?? "application/octet-stream";
         }
