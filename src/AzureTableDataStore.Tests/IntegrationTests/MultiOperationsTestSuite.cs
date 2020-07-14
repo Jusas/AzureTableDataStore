@@ -428,7 +428,7 @@ namespace AzureTableDataStore.Tests.IntegrationTests
             // Should not throw, should succeed by splitting the content into multiple batches.
         }
 
-        [Fact(Skip = "until exceptions are unified after merging batched and single ops")]
+        [Fact(/*Skip = "until exceptions are unified after merging batched and single ops"*/)]
         public async Task T12_InsertBatches_RaisingExceptionsFromValidation_WithoutBlobs()
         {
             // Arrange
@@ -455,13 +455,10 @@ namespace AzureTableDataStore.Tests.IntegrationTests
 
             // Client side validation should catch this early.
 
-            var exception = await Assert.ThrowsAsync<AzureTableDataStoreBatchedOperationException<TelescopePackageProduct>>(
+            var exception = await Assert.ThrowsAsync<AzureTableDataStoreEntityValidationException<TelescopePackageProduct>>(
                 () => store.InsertAsync(BatchingMode.Strong, itemsToAdd));
 
-            exception.InnerException.Should()
-                .BeOfType<AzureTableDataStoreEntityValidationException<TelescopePackageProduct>>();
-            ((AzureTableDataStoreEntityValidationException<TelescopePackageProduct>)exception.InnerException)
-                .EntityValidationErrors.Count.Should().Be(3);
+            exception.EntityValidationErrors.Count.Should().Be(3);
             
 
         }

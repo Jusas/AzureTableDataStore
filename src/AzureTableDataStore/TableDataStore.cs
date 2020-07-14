@@ -175,18 +175,10 @@ namespace AzureTableDataStore
 
         public async Task InsertAsync(BatchingMode batchingMode, params TData[] entities)
         {
-            switch (entities?.Length)
-            {
-                case 0:
-                    return;
-                case 1:
-                    await InsertOneAsync(entities[0], false);
-                    break;
-                default:
-                    if (batchingMode != BatchingMode.None) await InsertBatchedAsync(entities, batchingMode, false);
-                    else await InsertMultipleAsync(entities, false);
-                    return;
-            }
+            if (entities == null || entities.Length == 0)
+                return;
+
+            await InsertInternalAsync(entities, batchingMode, false);
         }
 
         private BlobContainerClient GetContainerClient()
@@ -260,154 +252,6 @@ namespace AzureTableDataStore
                 propRef.Property.SetValue(propRef.SourceObject, propRef.StoredInstanceAsObject);
         }
 
-
-        private async Task InsertOneAsync(TData entity, bool allowReplace)
-        {
-            try
-            {
-                var entityData = ExtractEntityProperties(entity, allowReplace);
-                var entityKeys = GetEntityKeys(entity);
-                var tableRef = GetTable();
-
-                // Check if the row already exists if we have blobs to upload - we don't want to upload them
-                // if the table insert itself may fail.
-                if (entityData.BlobPropertyRefs.Any() && !allowReplace)
-                {
-                    TableOperation existsOp = TableOperation.Retrieve(entityKeys.partitionKey, entityKeys.rowKey,
-                        new List<string>());
-                    try
-                    {
-                        var tableResult = await tableRef.ExecuteAsync(existsOp);
-                        if (tableResult.HttpStatusCode != 404)
-                        {
-                            var exception = new AzureTableDataStoreSingleOperationException<TData>(
-                                "Entity with partition key " +
-                                $"'{entityKeys.partitionKey}', row key '{entityKeys.rowKey}' already exists, cannot insert.");
-                            exception.Entity = entity;
-                            throw exception;
-                        }
-                    }
-                    catch (StorageException e)
-                    {
-                        var exception = new AzureTableDataStoreSingleOperationException<TData>(
-                            "Failed to check if entity exists with partition key " +
-                            $"'{entityKeys.partitionKey}', row key '{entityKeys.rowKey}'", e);
-                        exception.Entity = entity;
-                        throw exception;
-                    }
-                }
-
-
-                entityData.CollectionPropertyRefs.ForEach(@ref =>
-                    entityData.PropertyDictionary.Add(@ref.FlattenedPropertyName,
-                        EntityProperty.GeneratePropertyForString(
-                            JsonConvert.SerializeObject(@ref.StoredInstance, _jsonSerializerSettings))));
-
-
-                foreach (var @ref in entityData.BlobPropertyRefs)
-                {
-                    if (@ref.StoredInstance == null)
-                        continue;
-
-                    var stream = await @ref.StoredInstance.AsyncDataStream.Value;
-                    @ref.StoredInstance.Length = stream.Length;
-                    entityData.PropertyDictionary.Add(@ref.FlattenedPropertyName,
-                        EntityProperty.GeneratePropertyForString(
-                            JsonConvert.SerializeObject(@ref.StoredInstance, _jsonSerializerSettings)));
-                }
-
-                var tableEntity = new DynamicTableEntity(entityKeys.partitionKey, entityKeys.rowKey, "*",
-                    entityData.PropertyDictionary);
-
-                if (UseClientSideValidation)
-                {
-                    var entityValidationErrors = SerializationUtils.ValidateProperties(tableEntity);
-                    var blobPaths = entityData.BlobPropertyRefs.Select(x =>
-                        BuildBlobPath(x, entityKeys.partitionKey, entityKeys.rowKey));
-                    var pathValidations = blobPaths.Select(x => SerializationUtils.ValidateBlobPath(x));
-                    entityValidationErrors.AddRange(pathValidations.Where(x => x.Count > 0).SelectMany(x => x));
-
-                    if (entityValidationErrors.Any())
-                    {
-                        var exception =
-                            new AzureTableDataStoreEntityValidationException<TData>(
-                                "Client side validation failed for the entity");
-                        exception.EntityValidationErrors.Add(entity, entityValidationErrors);
-                        throw exception;
-                    }
-                }
-
-                var insertOp = TableOperation.Insert(tableEntity);
-                if (allowReplace)
-                    insertOp = TableOperation.InsertOrReplace(tableEntity);
-
-
-                await tableRef.ExecuteAsync(insertOp);
-
-                // Upload files after the table insert is successful - otherwise there's no point.
-                Task collectiveUploadTask = null;
-                try
-                {
-
-                    var uploadTasks = entityData.BlobPropertyRefs
-                        .Select(x => HandleBlobAndUpdateReference(entity, x,
-                            BuildBlobPath(x, entityKeys.partitionKey, entityKeys.rowKey), allowReplace,
-                            LargeBlobNullBehavior.DeleteBlob)).ToArray();
-                    collectiveUploadTask = Task.WhenAll(uploadTasks);
-                    await collectiveUploadTask;
-                }
-                catch (Exception e)
-                {
-                    var exception = new AzureTableDataStoreSingleOperationException<TData>(
-                        $"One or more Blob Storage operations failed. See {nameof(AzureTableDataStoreSingleOperationException<TData>.BlobOperationExceptions)} for details.",
-                        inner: e);
-                    foreach (var inner in collectiveUploadTask.Exception.InnerExceptions)
-                    {
-                        exception.BlobOperationExceptions.Add(
-                            inner as AzureTableDataStoreBlobOperationException<TData>);
-                    }
-
-                    throw exception;
-                }
-
-            }
-            catch (AzureTableDataStoreSingleOperationException<TData>)
-            {
-                throw;
-            }
-            catch (AzureTableDataStoreEntityValidationException<TData>)
-            {
-                //var ex = new AzureTableDataStoreSingleOperationException<TData>("Operation failed due to validation errors: " + e.Message,
-                //    e);
-                //ex.Entity = entity;
-                //throw ex;
-                throw;
-            }
-            catch (SerializationException e)
-            {
-                var ex = new AzureTableDataStoreSingleOperationException<TData>("Serialization of the data failed: " + e.Message,
-                    e);
-                ex.Entity = entity;
-                throw ex;
-            }
-            catch (Exception e)
-            {
-                AzureTableDataStoreSingleOperationException<TData> ex;
-                if (e.GetType().Namespace.StartsWith("Microsoft.Azure.Cosmos"))
-                {
-                    ex = new AzureTableDataStoreSingleOperationException<TData>(
-                        "Insert operation failed, outlying Table Storage threw an exception: " + e.Message, e);
-                    ex.Entity = entity;
-                    throw ex;
-                }
-
-                ex = new AzureTableDataStoreSingleOperationException<TData>("Insert operation threw an unhandlable exception: " + e.Message,
-                    e);
-                ex.Entity = entity;
-                throw ex;
-            }
-
-        }
 
         
         private string BuildBlobPath(ReflectionUtils.PropertyRef<LargeBlob> blobPropRef, string partitionKey,
@@ -522,45 +366,6 @@ namespace AzureTableDataStore
             }
         }
 
-        private async Task InsertMultipleAsync(TData[] entities, bool allowReplace)
-        {
-            var failedEntities = new ConcurrentDictionary<TData, AzureTableDataStoreSingleOperationException<TData>>();
-            var strangeErrors = new ConcurrentBag<Exception>();
-
-            // TODO any nice way to figure out a proper number of async calls?
-
-            // Run multiple concurrent inserts
-            var batches = entities.SplitToBatches(10).ToList();
-
-            foreach (var batch in batches)
-            {
-                var inserts = batch.Select(async x =>
-                {
-                    try
-                    {
-                        await InsertOneAsync(x, allowReplace);
-                    }
-                    catch (Exception e)
-                    {
-                        // Should really always be true
-                        if(e is AzureTableDataStoreSingleOperationException<TData> ex)
-                            failedEntities.TryAdd(x, ex);
-                        else
-                            strangeErrors.Add(e);
-                    }
-                });
-                await Task.WhenAll(inserts);
-            }
-
-            if (failedEntities.Any() || strangeErrors.Any())
-            {
-                var exception =
-                    new AzureTableDataStoreMultiOperationException<TData>(
-                        $"Failed to insert {failedEntities.Count} entities.", strangeErrors.Any() ? new AggregateException(strangeErrors) : null);
-                exception.SingleOperationExceptions.AddRange(failedEntities.Values);
-                throw exception;
-            }
-        }
 
         private class BatchItem
         {
@@ -569,7 +374,8 @@ namespace AzureTableDataStore
             public List<ReflectionUtils.PropertyRef<LargeBlob>> LargeBlobRefs { get; set; }
         }
         
-        private async Task InsertBatchedAsync(TData[] entities, BatchingMode batchingMode, bool allowReplace)
+
+        private async Task InsertInternalAsync(TData[] entities, BatchingMode batchingMode, bool allowReplace)
         {
 
             const long maxSingleBatchSize = 4_000_000;
@@ -595,7 +401,7 @@ namespace AzureTableDataStore
 
                 var blobProperties = _dataTypeLargeBlobRefs;
 
-                if (blobProperties.Any())
+                if ((batchingMode == BatchingMode.Strict || batchingMode == BatchingMode.Strong) && blobProperties.Any())
                 {
                     for (var i = 0; i < entities.Length; i++)
                     {
@@ -604,8 +410,7 @@ namespace AzureTableDataStore
                                 EntityPropertyConverterOptions);
                         foreach (var bp in blobProps)
                         {
-                            if (bp.StoredInstance != null &&
-                                (batchingMode == BatchingMode.Strict || batchingMode == BatchingMode.Strong))
+                            if (bp.StoredInstance != null)
                                 throw new AzureTableDataStoreInternalException(
                                     "Batched inserts are not supported for entity types with LargeBlob properties due to the " +
                                     "transactional nature of Table batch inserts. Please use either BatchingMode.Loose or BatchingMode.None when inserting LargeBlobs.");
@@ -614,7 +419,7 @@ namespace AzureTableDataStore
                 }
 
                 entityPartitionGroups = entities.GroupBy(x => _entityTypePartitionKeyPropertyInfo.GetValue(x))
-                    .ToDictionary(x => (string) x.Key, x => x.ToList());
+                    .ToDictionary(x => (string)x.Key, x => x.ToList());
 
                 // Again, if using Strict batching mode, we may only have entities from the same partition.
 
@@ -646,17 +451,19 @@ namespace AzureTableDataStore
             // Collect entities into batches for insert/replace.
             // Throw if we get errors.
 
+            TData currentEntity = default;
+            var allEntities = new List<BatchItem>();
+
             try
             {
-            
+
                 foreach (var group in entityPartitionGroups)
                 {
-                    var entityBatch = new List<BatchItem>();
-                    entityBatches.Add(entityBatch);
-                    long batchSize = SerializationUtils.CalculateApproximateBatchRequestSize();
+                    List<BatchItem> entityBatch = null;
 
                     foreach (var entity in group.Value)
                     {
+                        currentEntity = entity;
                         var entityKeys = GetEntityKeys(entity);
                         var entityData = ExtractEntityProperties(entity, allowReplace);
 
@@ -698,9 +505,29 @@ namespace AzureTableDataStore
                                 validationException.EntityValidationErrors.Add(entity, entityValidationErrors);
                             }
                         }
+
+                        if (batchingMode == BatchingMode.None)
+                        {
+                            allEntities.Add(new BatchItem()
+                            {
+                                SourceEntity = entity,
+                                SerializedEntity = tableEntity,
+                                LargeBlobRefs = entityData.BlobPropertyRefs
+                            });
+                            continue;
+                        }
+
+
+                        if (entityBatch == null)
+                        {
+                            entityBatch = new List<BatchItem>();
+                            entityBatches.Add(entityBatch);
+                        }
+
+                        var batchSize = SerializationUtils.CalculateApproximateBatchRequestSize(
+                            entityBatch.Select(x => x.SerializedEntity).Append(tableEntity).ToArray());
                         
-                        var entitySizeInBytes = SerializationUtils.CalculateApproximateBatchEntitySize(tableEntity);
-                        if (batchSize + entitySizeInBytes < maxSingleBatchSize && entityBatch.Count < maxSingleBatchCount)
+                        if (batchSize < maxSingleBatchSize && entityBatch.Count < maxSingleBatchCount)
                         {
                             entityBatch.Add(new BatchItem()
                             {
@@ -708,7 +535,6 @@ namespace AzureTableDataStore
                                 SerializedEntity = tableEntity,
                                 LargeBlobRefs = entityData.BlobPropertyRefs
                             });
-                            batchSize += entitySizeInBytes;
                         }
                         else
                         {
@@ -727,7 +553,6 @@ namespace AzureTableDataStore
                                 }
                             };
                             entityBatches.Add(entityBatch);
-                            batchSize = SerializationUtils.CalculateApproximateEntitySize(tableEntity);
                         }
                     }
                 }
@@ -738,26 +563,68 @@ namespace AzureTableDataStore
             catch (AzureTableDataStoreEntityValidationException<TData>)
             {
                 throw;
-                //var ex = new AzureTableDataStoreBatchedOperationException<TData>(
-                //    "One or more entities did not pass validation", e);
-                //ex.BatchExceptionContexts.Add(new BatchExceptionContext<TData>()
-                //{
-                //    BatchEntities = entities.ToList()
-                //});
-                //throw ex;
             }
             catch (SerializationException e)
             {
+                if (batchingMode == BatchingMode.None && entities.Length < 2)
+                {
+                    throw new AzureTableDataStoreSingleOperationException<TData>(
+                        "Serialization of the data failed: " + e.Message, e)
+                    {
+                        Entity = entities[0]
+                    };
+                }
+
+                if (batchingMode == BatchingMode.None)
+                {
+                    throw new AzureTableDataStoreMultiOperationException<TData>(
+                        "Serialization of the data failed: " + e.Message, e)
+                    {
+                        SingleOperationExceptions = new List<AzureTableDataStoreSingleOperationException<TData>>()
+                        {
+                            new AzureTableDataStoreSingleOperationException<TData>("Serialization error: " + e.Message, e)
+                            {
+                                Entity = currentEntity
+                            }
+                        }
+                    };
+                }
+
                 var ex = new AzureTableDataStoreBatchedOperationException<TData>(
                     "Serialization of the data failed: " + e.Message, e);
                 ex.BatchExceptionContexts.Add(new BatchExceptionContext<TData>()
                 {
-                    BatchEntities = entities.ToList()
+                    BatchEntities = entities.ToList(),
+                    CurrentEntity = currentEntity
                 });
                 throw ex;
             }
             catch (Exception e)
             {
+                if (batchingMode == BatchingMode.None && entities.Length < 2)
+                {
+                    throw new AzureTableDataStoreSingleOperationException<TData>(
+                        "Failed to prepare the entity for insert/replace: " + e.Message, e)
+                    {
+                        Entity = entities[0]
+                    };
+                }
+
+                if (batchingMode == BatchingMode.None)
+                {
+                    throw new AzureTableDataStoreMultiOperationException<TData>(
+                        "Failed to prepare the entities for insert/replace: " + e.Message, e)
+                    {
+                        SingleOperationExceptions = new List<AzureTableDataStoreSingleOperationException<TData>>()
+                        {
+                            new AzureTableDataStoreSingleOperationException<TData>("Failed to prepare entity for insert/replace: " + e.Message, e)
+                            {
+                                Entity = currentEntity
+                            }
+                        }
+                    };
+                }
+
                 var ex = new AzureTableDataStoreBatchedOperationException<TData>(
                     "Failed to group entities into batches: " + e.Message, e);
                 ex.BatchExceptionContexts.Add(new BatchExceptionContext<TData>()
@@ -766,112 +633,90 @@ namespace AzureTableDataStore
                 });
                 throw ex;
             }
-            
 
-            // Run the prepared batches.
+
+            // Run the prepared batches/items.
+
+
+            if (batchingMode == BatchingMode.None)
+            {
+                var failedOps = new ConcurrentBag<AzureTableDataStoreSingleOperationException<TData>>();
+                try
+                {
+                    var parallelOpGroups = ArrayExtensions.SplitToBatches(allEntities, 20);
+                    foreach (var parallelOpGroup in parallelOpGroups)
+                    {
+                        var parallelOpsAsTasks = parallelOpGroup.Select(
+                            item => RunAsSingleOperation(allowReplace, allowReplace ? TableOperationType.InsertOrReplace : TableOperationType.Insert,
+                                LargeBlobNullBehavior.DeleteBlob, item, failedOps));
+                        var parallelTaskRuns = Task.WhenAll(parallelOpsAsTasks);
+                        await parallelTaskRuns;
+                    }
+
+                    if (failedOps.Count > 1)
+                    {
+                        var exception = new AzureTableDataStoreMultiOperationException<TData>(
+                            "One or more operations had errors");
+                        exception.SingleOperationExceptions.AddRange(failedOps);
+                        throw exception;
+                    }
+
+                    if (failedOps.Count == 1 && allEntities.Count == 1)
+                    {
+                        failedOps.TryTake(out var ex);
+                        throw ex;
+                    }
+                }
+                catch (AzureTableDataStoreSingleOperationException<TData>)
+                {
+                    throw;
+                }
+                catch (AzureTableDataStoreMultiOperationException<TData>)
+                {
+                    throw;
+                }
+                catch (Exception e) when (allEntities.Count > 1)
+                {
+                    var ex = new AzureTableDataStoreMultiOperationException<TData>(
+                        $"Unexpected exception in multi-operation execution, see inner exception: " + e.Message, e);
+                    ex.SingleOperationExceptions.AddRange(failedOps);
+                    throw ex;
+                }
+                catch (Exception e) when (allEntities.Count == 1)
+                {
+                    var ex = new AzureTableDataStoreSingleOperationException<TData>(
+                        $"Unexpected exception in single operation execution, see inner exception: " + e.Message, e);
+                    ex.Entity = allEntities[0].SourceEntity;
+                    throw ex;
+                }
+
+                return;
+            }
 
             try
             {
-                var failedTableBatches = new List<BatchExceptionContext<TData>>();
-                
-                // A single batch insert/replace operation.
-                async Task RunAsBatchInsertOperations(List<BatchItem> batchItems)
-                {
-                    // Attempt table op first, and proceed with related blob ops if the table op succeeds.
 
-                    var batchExceptionContext = new BatchExceptionContext<TData>();
-                    batchExceptionContext.BatchEntities = batchItems.Select(x => x.SourceEntity).ToList();
-
-                    try
-                    {
-                        var tableRef = GetTable();
-                        var batchOp = new TableBatchOperation();
-                        batchItems.ForEach(item => batchOp.Add(allowReplace ? TableOperation.InsertOrReplace(item.SerializedEntity) : TableOperation.Insert(item.SerializedEntity, true)));
-                        await tableRef.ExecuteBatchAsync(batchOp);
-                    }
-                    catch (Exception e)
-                    {
-                        batchExceptionContext.TableOperationException = e;
-                        failedTableBatches.Add(batchExceptionContext);
-                        return;
-                    }
-
-                    if (batchingMode != BatchingMode.Loose)
-                        return;
-
-                    // Handle blob ops with some degree of parallelism.
-                    // Collect failed blob operations to a list, later to be stored into an aggregate exception.
-                    try
-                    {
-                        var flattenedUploadList =
-                            new List<(TData sourceEntity, DynamicTableEntity serializedEntity,
-                                ReflectionUtils.PropertyRef<LargeBlob> blobRef)>();
-                        batchItems.ForEach(x =>
-                            x.LargeBlobRefs.ForEach(r =>
-                                flattenedUploadList.Add((x.SourceEntity, x.SerializedEntity, r))));
-
-                        var parallelUploadGroups = ArrayExtensions.SplitToBatches(flattenedUploadList, 10);
-
-                        foreach (var parallelUploadGroup in parallelUploadGroups)
-                        {
-                            Task collectiveUploadTask = null;
-                            try
-                            {
-                                var parallelUploadTasks = parallelUploadGroup.Select(blobOp =>
-                                {
-                                    var pk = blobOp.serializedEntity.PartitionKey;
-                                    var rk = blobOp.serializedEntity.RowKey;
-
-                                    return HandleBlobAndUpdateReference(blobOp.sourceEntity, blobOp.blobRef,
-                                        BuildBlobPath(blobOp.blobRef, pk, rk),
-                                        allowReplace, LargeBlobNullBehavior.DeleteBlob);
-                                });
-
-                                collectiveUploadTask = Task.WhenAll(parallelUploadTasks);
-                                await collectiveUploadTask;
-                            }
-                            catch (Exception)
-                            {
-                                foreach (var ex in collectiveUploadTask.Exception.InnerExceptions)
-                                {
-                                    if (ex is AzureTableDataStoreBlobOperationException<TData> blobEx)
-                                        batchExceptionContext.BlobOperationExceptions.Add(blobEx);
-                                    else
-                                        batchExceptionContext.BlobOperationExceptions.Add(
-                                            new AzureTableDataStoreBlobOperationException<TData>(ex.Message,
-                                                inner: ex));
-
-                                }
-                                failedTableBatches.Add(batchExceptionContext);
-                            }
-                        }
-
-                    }
-                    catch (Exception e)
-                    {
-                        var unexpected =
-                            new AzureTableDataStoreBlobOperationException<TData>("Unhandled exception: " + e.Message,
-                                inner: e);
-                        batchExceptionContext.BlobOperationExceptions.Add(unexpected);
-                        failedTableBatches.Add(batchExceptionContext);
-                    }
-                }
+                var failedTableBatches = new ConcurrentBag<BatchExceptionContext<TData>>();
 
                 var parallelBatchGroups = ArrayExtensions.SplitToBatches(entityBatches, 10);
                 foreach (var batchGroup in parallelBatchGroups)
                 {
-                    var batchGroupAsTasks = batchGroup.Select(RunAsBatchInsertOperations);
+                    var batchGroupAsTasks = batchGroup.Select(
+                        batchItems => RunAsBatchOperations(allowReplace, batchingMode, 
+                            allowReplace ? TableOperationType.InsertOrReplace : TableOperationType.Insert, 
+                            LargeBlobNullBehavior.DeleteBlob, batchItems, failedTableBatches));
                     var parallelTaskRuns = Task.WhenAll(batchGroupAsTasks);
                     await parallelTaskRuns;
+                
                 }
 
                 // if any failed table batches or blob uploads, throw a collective AzureTableDataStoreBatchedOperationException
                 if (failedTableBatches.Any())
                 {
-                    string exceptionMessage = "One or more batches failed to insert or replace";
+                    string exceptionMessage = "One or more Table insert/replace batch calls failed, see BatchExceptionContexts for more information.";
                     throw new AzureTableDataStoreBatchedOperationException<TData>(exceptionMessage)
                     {
-                        BatchExceptionContexts = failedTableBatches
+                        BatchExceptionContexts = failedTableBatches.ToList()
                     };
                 }
 
@@ -882,7 +727,8 @@ namespace AzureTableDataStore
             }
             catch (Exception e)
             {
-                var ex = new AzureTableDataStoreBatchedOperationException<TData>($"Unexpected exception in batch insert: " + e.Message,
+                var ex = new AzureTableDataStoreBatchedOperationException<TData>(
+                    $"Unexpected exception in batch insert/replace: " + e.Message,
                     e);
                 ex.BatchExceptionContexts.Add(new BatchExceptionContext<TData>()
                 {
@@ -893,21 +739,171 @@ namespace AzureTableDataStore
 
         }
 
+
+        private async Task RunAsSingleOperation(bool allowReplace, TableOperationType opType, LargeBlobNullBehavior largeBlobNullBehavior, BatchItem entityItem, 
+            ConcurrentBag<AzureTableDataStoreSingleOperationException<TData>> failedOps)
+        {
+            try
+            {
+                var tableRef = GetTable();
+                var tableOp = TableWriteOpFromType(opType, entityItem.SerializedEntity);
+
+                await tableRef.ExecuteAsync(tableOp);
+            }
+            catch (Exception e)
+            {
+                var exception = new AzureTableDataStoreSingleOperationException<TData>(
+                    $"Failed '{opType}' Table Storage operation: " + e.Message, e)
+                {
+                    Entity = entityItem.SourceEntity
+                };
+                failedOps.Add(exception);
+                return;
+            }
+
+            // Upload files after the table insert is successful - otherwise there's no point.
+            Task collectiveUploadTask = null;
+            try
+            {
+                var uploadTasks = entityItem.LargeBlobRefs
+                    .Select(x => HandleBlobAndUpdateReference(entityItem.SourceEntity, x,
+                        BuildBlobPath(x, entityItem.SerializedEntity.PartitionKey, entityItem.SerializedEntity.RowKey), allowReplace,
+                        largeBlobNullBehavior)).ToArray();
+                collectiveUploadTask = Task.WhenAll(uploadTasks);
+                await collectiveUploadTask;
+            }
+            catch (Exception e)
+            {
+                var exception = new AzureTableDataStoreSingleOperationException<TData>(
+                    $"One or more Blob Storage operations failed. See {nameof(AzureTableDataStoreSingleOperationException<TData>.BlobOperationExceptions)} for details.",
+                    inner: e)
+                {
+                    Entity = entityItem.SourceEntity
+                };
+
+                foreach (var inner in collectiveUploadTask.Exception.InnerExceptions)
+                {
+                    exception.BlobOperationExceptions.Add(
+                        inner as AzureTableDataStoreBlobOperationException<TData>);
+                }
+
+                failedOps.Add(exception);
+            }
+
+        }
+
+        private TableOperation TableWriteOpFromType(TableOperationType type, DynamicTableEntity entity)
+        {
+            switch (type)
+            {
+                case TableOperationType.Insert:
+                    return TableOperation.Insert(entity);
+                case TableOperationType.InsertOrReplace:
+                    return TableOperation.InsertOrReplace(entity);
+                case TableOperationType.Delete:
+                    return TableOperation.Delete(entity);
+                case TableOperationType.InsertOrMerge:
+                    return TableOperation.InsertOrMerge(entity);
+                case TableOperationType.Merge:
+                    return TableOperation.Merge(entity);
+                case TableOperationType.Replace:
+                    return TableOperation.Replace(entity);
+            }
+            throw new Exception("Unsupported op type");
+        }
+
+        // A single batch insert/replace operation.
+        private async Task RunAsBatchOperations(bool allowReplace, BatchingMode batchingMode, TableOperationType opType, LargeBlobNullBehavior largeBlobNullBehavior, 
+            List<BatchItem> batchItems, ConcurrentBag<BatchExceptionContext<TData>> failedTableBatches)
+        {
+            // Attempt table op first, and proceed with related blob ops if the table op succeeds.
+
+            var batchExceptionContext = new BatchExceptionContext<TData>();
+            batchExceptionContext.BatchEntities = batchItems.Select(x => x.SourceEntity).ToList();
+
+            try
+            {
+                var tableRef = GetTable();
+                var batchOp = new TableBatchOperation();
+
+                batchItems.ForEach(item => batchOp.Add(TableWriteOpFromType(opType, item.SerializedEntity)));
+                await tableRef.ExecuteBatchAsync(batchOp);
+            }
+            catch (Exception e)
+            {
+                batchExceptionContext.TableOperationException = e;
+                failedTableBatches.Add(batchExceptionContext);
+                return;
+            }
+
+            if (batchingMode != BatchingMode.Loose)
+                return;
+
+            // Handle blob ops with some degree of parallelism.
+            // Collect failed blob operations to a list, later to be stored into an aggregate exception.
+            try
+            {
+                var flattenedUploadList =
+                    new List<(TData sourceEntity, DynamicTableEntity serializedEntity,
+                        ReflectionUtils.PropertyRef<LargeBlob> blobRef)>();
+                batchItems.ForEach(x =>
+                    x.LargeBlobRefs.ForEach(r =>
+                        flattenedUploadList.Add((x.SourceEntity, x.SerializedEntity, r))));
+
+                var parallelUploadGroups = ArrayExtensions.SplitToBatches(flattenedUploadList, 10);
+
+                foreach (var parallelUploadGroup in parallelUploadGroups)
+                {
+                    Task collectiveUploadTask = null;
+                    try
+                    {
+                        var parallelUploadTasks = parallelUploadGroup.Select(blobOp =>
+                        {
+                            var pk = blobOp.serializedEntity.PartitionKey;
+                            var rk = blobOp.serializedEntity.RowKey;
+
+                            return HandleBlobAndUpdateReference(blobOp.sourceEntity, blobOp.blobRef,
+                                BuildBlobPath(blobOp.blobRef, pk, rk),
+                                allowReplace, largeBlobNullBehavior);
+                        });
+
+                        collectiveUploadTask = Task.WhenAll(parallelUploadTasks);
+                        await collectiveUploadTask;
+                    }
+                    catch (Exception)
+                    {
+                        foreach (var ex in collectiveUploadTask.Exception.InnerExceptions)
+                        {
+                            if (ex is AzureTableDataStoreBlobOperationException<TData> blobEx)
+                                batchExceptionContext.BlobOperationExceptions.Add(blobEx);
+                            else
+                                batchExceptionContext.BlobOperationExceptions.Add(
+                                    new AzureTableDataStoreBlobOperationException<TData>(ex.Message,
+                                        inner: ex));
+
+                        }
+                        failedTableBatches.Add(batchExceptionContext);
+                    }
+                }
+
+            }
+            catch (Exception e)
+            {
+                var unexpected =
+                    new AzureTableDataStoreBlobOperationException<TData>("Unhandled exception: " + e.Message,
+                        inner: e);
+                batchExceptionContext.BlobOperationExceptions.Add(unexpected);
+                failedTableBatches.Add(batchExceptionContext);
+            }
+        }
+
+
         public async Task InsertOrReplaceAsync(BatchingMode batchingMode, params TData[] entities)
         {
             if (entities == null || entities.Length == 0)
                 return;
 
-            switch (entities.Length)
-            {
-                case 1:
-                    await InsertOneAsync(entities[0], true);
-                    break;
-                default:
-                    if (batchingMode != BatchingMode.None) await InsertBatchedAsync(entities, batchingMode, true);
-                    else await InsertMultipleAsync(entities, true);
-                    return;
-            }
+            await InsertInternalAsync(entities, batchingMode, true);
         }
 
         private List<string> ValidateSelectExpressionAndExtractMembers(Expression expression)
@@ -946,225 +942,16 @@ namespace AzureTableDataStore
         public async Task MergeAsync(BatchingMode batchingMode, Expression<Func<TData, object>> selectMergedPropertiesExpression, 
             LargeBlobNullBehavior largeBlobNullBehavior = LargeBlobNullBehavior.IgnoreProperty, params TData[] entities)
         {
-
             if (entities == null || entities.Length == 0)
                 return;
 
-            //List<string> mergedPropertyNames = ValidateSelectExpressionAndExtractMembers(selectMergedPropertiesExpression);
-
-            switch (entities.Length)
-            {
-                case 1:
-                    await MergeOneAsync(selectMergedPropertiesExpression, new DataStoreEntity<TData>("*", entities.First()), largeBlobNullBehavior);
-                    break;
-                default:
-                    if (batchingMode != BatchingMode.None) await MergeBatchedAsync(selectMergedPropertiesExpression, batchingMode, largeBlobNullBehavior, entities.Select(x => new DataStoreEntity<TData>("*", x)).ToArray());
-                    else await MergeMultipleAsync(selectMergedPropertiesExpression, entities.Select(x => new DataStoreEntity<TData>("*", x)).ToArray(), largeBlobNullBehavior);
-                    return;
-            }
-            
-
+            await MergeInternalAsync(selectMergedPropertiesExpression, batchingMode, largeBlobNullBehavior, entities.Select(x => new DataStoreEntity<TData>("*", x)).ToArray());
         }
-
-        private async Task MergeOneAsync(Expression<Func<TData, object>> selectMergedPropertiesExpression, DataStoreEntity<TData> entity, LargeBlobNullBehavior largeBlobNullBehavior)
-        {
-            try
-            {
-                List<string> propertyNames =
-                    ValidateSelectExpressionAndExtractMembers(selectMergedPropertiesExpression);
-
-                var entityKeys = GetEntityKeys(entity.Value);
-                var entityData = ExtractEntityProperties(entity.Value, true);
-                var tableRef = GetTable();
-
-                var blobPropertiesToUpdate = entityData.BlobPropertyRefs
-                    .Where(x => propertyNames.Contains(x.FlattenedPropertyName))
-                    .ToList();
-
-                var collectionPropertiesToUpdate = entityData.CollectionPropertyRefs
-                    .Where(x => propertyNames.Contains(x.FlattenedPropertyName))
-                    .ToList();
-
-                // Check if the row already exists if we have blobs to upload - we don't want to upload them
-                // if the table operation itself may fail.
-                if (blobPropertiesToUpdate.Any())
-                {
-                    TableOperation existsOp = TableOperation.Retrieve(entityKeys.partitionKey, entityKeys.rowKey,
-                        new List<string>());
-                    try
-                    {
-                        var existsResult = await tableRef.ExecuteAsync(existsOp);
-                        if (existsResult.HttpStatusCode == 404)
-                        {
-                            var exception = new AzureTableDataStoreSingleOperationException<TData>(
-                                "An entity with partition key " +
-                                $"'{entityKeys.partitionKey}', row key '{entityKeys.rowKey}' does not exist: cannot merge");
-                            exception.Entity = entity.Value;
-                            throw exception;
-                        }
-                    }
-                    catch (AzureTableDataStoreSingleOperationException<TData>)
-                    {
-                        throw;
-                    }
-                    catch (Exception e)
-                    {
-                        var exception = new AzureTableDataStoreSingleOperationException<TData>(
-                            "Failed to check the existence of entity with partition key " +
-                            $"'{entityKeys.partitionKey}', row key '{entityKeys.rowKey}': cannot merge", e);
-                        exception.Entity = entity.Value;
-                        throw exception;
-                    }
-
-                }
-
-                collectionPropertiesToUpdate.ForEach(@ref =>
-                    entityData.PropertyDictionary.Add(@ref.FlattenedPropertyName,
-                        EntityProperty.GeneratePropertyForString(
-                            JsonConvert.SerializeObject(@ref.StoredInstance, _jsonSerializerSettings))));
-
-                foreach (var @ref in blobPropertiesToUpdate)
-                {
-                    if (@ref.StoredInstance == null && largeBlobNullBehavior == LargeBlobNullBehavior.IgnoreProperty)
-                        continue;
-
-                    else if (@ref.StoredInstance == null && largeBlobNullBehavior == LargeBlobNullBehavior.DeleteBlob)
-                    {
-                        entityData.PropertyDictionary.Add(@ref.FlattenedPropertyName,
-                            EntityProperty.GeneratePropertyForString(
-                                JsonConvert.SerializeObject(@ref.StoredInstance, _jsonSerializerSettings)));
-                    }
-                    else
-                    {
-                        var stream = await @ref.StoredInstance.AsyncDataStream.Value;
-                        @ref.StoredInstance.Length = stream.Length;
-                        entityData.PropertyDictionary.Add(@ref.FlattenedPropertyName,
-                            EntityProperty.GeneratePropertyForString(
-                                JsonConvert.SerializeObject(@ref.StoredInstance, _jsonSerializerSettings)));
-                    }
-                }
-
-
-                var selectedPropertyValues = new Dictionary<string, EntityProperty>();
-                foreach (var propertyName in propertyNames)
-                {
-                    // Since null values are not going to be present here, only add them to the merged property
-                    // values if they're found from the property dictionary.
-                    // We cannot "unset" values in tables, null values will simply be ignored here.
-                    // TODO how do we actually unset properties? Deleting/unsetting a LargeBlob for example.
-                    if (entityData.PropertyDictionary.ContainsKey(propertyName))
-                    {
-                        var property = entityData.PropertyDictionary[propertyName];
-                        selectedPropertyValues.Add(propertyName, property);
-                    }
-                }
-
-                var tableEntity = new DynamicTableEntity(entityKeys.partitionKey, entityKeys.rowKey, entity.ETag,
-                    selectedPropertyValues);
-
-                if (UseClientSideValidation)
-                {
-                    var entityValidationErrors = SerializationUtils.ValidateProperties(tableEntity);
-                    var blobPaths = blobPropertiesToUpdate.Select(x =>
-                        BuildBlobPath(x, entityKeys.partitionKey, entityKeys.rowKey));
-                    var pathValidations = blobPaths.Select(x => SerializationUtils.ValidateBlobPath(x));
-                    entityValidationErrors.AddRange(pathValidations.Where(x => x.Count > 0).SelectMany(x => x));
-
-                    if (entityValidationErrors.Any())
-                    {
-                        var exception =
-                            new AzureTableDataStoreEntityValidationException<TData>(
-                                "Client side validation failed for the entity");
-                        exception.EntityValidationErrors.Add(entity.Value, entityValidationErrors);
-                        throw exception;
-                    }
-                }
-
-                var mergeOp = TableOperation.Merge(tableEntity);
-
-                await tableRef.ExecuteAsync(mergeOp);
-
-                // Upload blobs only if the table op succeeds.
-
-                if (blobPropertiesToUpdate.Any())
-                {
-                    var uploadTasks = blobPropertiesToUpdate
-                        .Select(x => HandleBlobAndUpdateReference(entity.Value, x,
-                            BuildBlobPath(x, entityKeys.partitionKey, entityKeys.rowKey), true, largeBlobNullBehavior))
-                        .ToArray();
-                    await Task.WhenAll(uploadTasks);
-                }
-
-            }
-            catch (AzureTableDataStoreEntityValidationException<TData>)
-            {
-                //var ex = new AzureTableDataStoreSingleOperationException<TData>(
-                //    "The entity did not pass validation", e);
-                //ex.Entity = entity.Value;
-                //throw ex;
-                throw;
-            }
-            catch (AzureTableDataStoreSingleOperationException<TData>)
-            {
-                throw;
-            }
-            catch (Exception e)
-            {
-                var ex = new AzureTableDataStoreSingleOperationException<TData>(
-                    "Merge operation failed: " + e.Message, e);
-                ex.Entity = entity.Value;
-                throw ex;
-            }
-        }
-
-        private async Task MergeMultipleAsync(Expression<Func<TData, object>> selectMergedPropertiesExpression, DataStoreEntity<TData>[] entities, LargeBlobNullBehavior largeBlobNullBehavior)
-        {
-            var failedEntities = new ConcurrentDictionary<TData, AzureTableDataStoreSingleOperationException<TData>>();
-            var strangeErrors = new ConcurrentBag<Exception>();
-
-            // TODO any nice way to figure out a proper number of async calls?
-
-            // Run multiple concurrently
-            var batches = entities.SplitToBatches(10).ToList();
-
-            foreach (var batch in batches)
-            {
-                var merges = batch.Select(async x =>
-                {
-                    try
-                    {
-                        await MergeOneAsync(selectMergedPropertiesExpression, x, largeBlobNullBehavior);
-                    }
-                    catch (Exception e)
-                    {
-                        // Should really always be true
-                        if (e is AzureTableDataStoreSingleOperationException<TData> ex)
-                            failedEntities.TryAdd(x.Value, ex);
-                        else
-                            strangeErrors.Add(e);
-                    }
-                });
-                await Task.WhenAll(merges);
-            }
-
-            if (failedEntities.Any() || strangeErrors.Any())
-            {
-                var exception = new AzureTableDataStoreMultiOperationException<TData>(
-                    $"Failed to merge {failedEntities.Count} entities. " +
-                          $"See {nameof(AzureTableDataStoreMultiOperationException<TData>.SingleOperationExceptions)} for details.",
-                    strangeErrors.Any() ? new AggregateException(strangeErrors) : null);
-                exception.SingleOperationExceptions.AddRange(failedEntities.Values);
-                throw exception;
-            }
-
-        }
-
-        private async Task MergeBatchedAsync(Expression<Func<TData, object>> selectMergedPropertiesExpression, BatchingMode batchingMode, LargeBlobNullBehavior largeBlobNullBehavior, DataStoreEntity<TData>[] entities)
+        
+        private async Task MergeInternalAsync(Expression<Func<TData, object>> selectMergedPropertiesExpression, BatchingMode batchingMode, LargeBlobNullBehavior largeBlobNullBehavior, DataStoreEntity<TData>[] entities)
         {
             const long maxSingleBatchSize = 4_000_000;
             const int maxSingleBatchCount = 100;
-
-            var entityBatches = new List<List<BatchItem>>();
 
             // Run some pre-merge checks and throw early on errors.
 
@@ -1187,7 +974,7 @@ namespace AzureTableDataStore
 
                 var blobProperties = _dataTypeLargeBlobRefs;
 
-                if (blobProperties.Any())
+                if ((batchingMode == BatchingMode.Strict || batchingMode == BatchingMode.Strong) && blobProperties.Any())
                 {
                     for (var i = 0; i < entities.Length; i++)
                     {
@@ -1196,17 +983,16 @@ namespace AzureTableDataStore
                                 EntityPropertyConverterOptions);
                         foreach (var bp in blobProps)
                         {
-                            if (bp.StoredInstance != null &&
-                                (batchingMode == BatchingMode.Strict || batchingMode == BatchingMode.Strong))
+                            if (bp.StoredInstance != null)
                                 throw new AzureTableDataStoreInternalException(
                                     "Batched merges are not supported for entity types with LargeBlob properties due to the " +
-                                    "transactional nature of Table batch merges. Please use either BatchingMode.Loose or BatchingMode.None when inserting LargeBlobs.");
+                                    "transactional nature of Table batch operations. Please use either BatchingMode.Loose or BatchingMode.None when inserting LargeBlobs.");
                         }
                     }
                 }
 
                 entityPartitionGroups = entities.GroupBy(x => _entityTypePartitionKeyPropertyInfo.GetValue(x.Value))
-                    .ToDictionary(x => (string) x.Key, x => x.ToList());
+                    .ToDictionary(x => (string)x.Key, x => x.ToList());
 
                 // Again, if using Strict batching mode, we may only have entities from the same partition.
 
@@ -1219,17 +1005,17 @@ namespace AzureTableDataStore
                 // The idea of trying to delete blobs when LargeBlobs are set to null is incompatible with Strict
                 // and Strong batching modes. No blob operations whatsoever in these modes.
 
-                if (batchingMode != BatchingMode.Loose && largeBlobNullBehavior != LargeBlobNullBehavior.IgnoreProperty)
+                if ((batchingMode != BatchingMode.Loose && batchingMode != BatchingMode.None) && largeBlobNullBehavior != LargeBlobNullBehavior.IgnoreProperty)
                 {
                     throw new AzureTableDataStoreInternalException(
-                        "Strict and Strong batching modes cannot perform any Blob operations," +
+                        "Strict and Strong batching modes cannot perform any Blob operations, " +
                         "largeBlobNullBehavior must be set to IgnoreProperty with these batching modes.");
                 }
             }
             catch (Exception e)
             {
                 var ex = new AzureTableDataStoreBatchedOperationException<TData>(
-                    "Pre-checks for batch insert failed: " + e.Message,
+                    "Pre-checks for batch merge failed: " + e.Message,
                     e);
                 ex.BatchExceptionContexts.Add(new BatchExceptionContext<TData>()
                 {
@@ -1238,6 +1024,7 @@ namespace AzureTableDataStore
                 throw ex;
             }
 
+            var entityBatches = new List<List<BatchItem>>();
             var validationException = new AzureTableDataStoreEntityValidationException<TData>("Client side validation failed for some entities. "
                 + $"See {nameof(AzureTableDataStoreEntityValidationException<TData>.EntityValidationErrors)} for details.");
 
@@ -1245,20 +1032,22 @@ namespace AzureTableDataStore
             // Collect entities into batches for merge.
             // Throw if we get errors.
 
+            DataStoreEntity<TData> currentEntity = default;
+            var allEntities = new List<BatchItem>();
+
             try
             {
 
                 foreach (var group in entityPartitionGroups)
                 {
-                    var entityBatch = new List<BatchItem>();
-                    entityBatches.Add(entityBatch);
-                    long batchSize = SerializationUtils.CalculateApproximateBatchRequestSize();
+                    List<BatchItem> entityBatch = null;
 
                     foreach (var entity in group.Value)
                     {
+                        currentEntity = entity;
                         var entityKeys = GetEntityKeys(entity.Value);
                         var entityData = ExtractEntityProperties(entity.Value, true);
-                        
+
                         var selectedPropertyValues = new Dictionary<string, EntityProperty>();
 
                         entityData.CollectionPropertyRefs.ForEach(@ref =>
@@ -1280,8 +1069,11 @@ namespace AzureTableDataStore
 
                         foreach (var propertyName in propertyNames)
                         {
-                            var property = entityData.PropertyDictionary[propertyName];
-                            selectedPropertyValues.Add(propertyName, property);
+                            if (entityData.PropertyDictionary.ContainsKey(propertyName))
+                            {
+                                var property = entityData.PropertyDictionary[propertyName];
+                                selectedPropertyValues.Add(propertyName, property);
+                            }
                         }
 
                         var tableEntity = new DynamicTableEntity()
@@ -1306,8 +1098,29 @@ namespace AzureTableDataStore
                             }
                         }
 
+                        if (batchingMode == BatchingMode.None)
+                        {
+                            allEntities.Add(new BatchItem()
+                            {
+                                SourceEntity = entity.Value,
+                                SerializedEntity = tableEntity,
+                                LargeBlobRefs = entityData.BlobPropertyRefs
+                            });
+                            continue;
+                        }
+
+
+                        if (entityBatch == null)
+                        {
+                            entityBatch = new List<BatchItem>();
+                            entityBatches.Add(entityBatch);
+                        }
+
+                        var batchSize = SerializationUtils.CalculateApproximateBatchRequestSize(
+                            entityBatch.Select(x => x.SerializedEntity).Append(tableEntity).ToArray());
+
                         var entitySizeInBytes = SerializationUtils.CalculateApproximateBatchEntitySize(tableEntity);
-                        if (batchSize + entitySizeInBytes < maxSingleBatchSize && entityBatch.Count < maxSingleBatchCount)
+                        if (batchSize < maxSingleBatchSize && entityBatch.Count < maxSingleBatchCount)
                         {
                             entityBatch.Add(new BatchItem()
                             {
@@ -1315,7 +1128,6 @@ namespace AzureTableDataStore
                                 SerializedEntity = tableEntity,
                                 LargeBlobRefs = entityData.BlobPropertyRefs
                             });
-                            batchSize += entitySizeInBytes;
                         }
                         else
                         {
@@ -1334,7 +1146,6 @@ namespace AzureTableDataStore
                                 }
                             };
                             entityBatches.Add(entityBatch);
-                            batchSize = SerializationUtils.CalculateApproximateEntitySize(tableEntity);
                         }
                     }
                 }
@@ -1344,27 +1155,69 @@ namespace AzureTableDataStore
             }
             catch (AzureTableDataStoreEntityValidationException<TData>)
             {
-                //var ex = new AzureTableDataStoreBatchedOperationException<TData>(
-                //    "One or more entities did not pass validation", e);
-                //ex.BatchExceptionContexts.Add(new BatchExceptionContext<TData>()
-                //{
-                //    BatchEntities = entities.Select(x => x.Value).ToList()
-                //});
-                //throw ex;
                 throw;
             }
             catch (SerializationException e)
             {
+                if (batchingMode == BatchingMode.None && entities.Length < 2)
+                {
+                    throw new AzureTableDataStoreSingleOperationException<TData>(
+                        "Serialization of the data failed: " + e.Message, e)
+                    {
+                        Entity = entities[0].Value
+                    };
+                }
+
+                if (batchingMode == BatchingMode.None)
+                {
+                    throw new AzureTableDataStoreMultiOperationException<TData>(
+                        "Serialization of the data failed: " + e.Message, e)
+                    {
+                        SingleOperationExceptions = new List<AzureTableDataStoreSingleOperationException<TData>>()
+                        {
+                            new AzureTableDataStoreSingleOperationException<TData>("Serialization error: " + e.Message, e)
+                            {
+                                Entity = currentEntity.Value
+                            }
+                        }
+                    };
+                }
+
                 var ex = new AzureTableDataStoreBatchedOperationException<TData>(
                     "Serialization of the data failed: " + e.Message, e);
                 ex.BatchExceptionContexts.Add(new BatchExceptionContext<TData>()
                 {
-                    BatchEntities = entities.Select(x => x.Value).ToList()
+                    BatchEntities = entities.Select(x => x.Value).ToList(),
+                    CurrentEntity = currentEntity != null ? currentEntity.Value : default
                 });
                 throw ex;
             }
             catch (Exception e)
             {
+                if (batchingMode == BatchingMode.None && entities.Length < 2)
+                {
+                    throw new AzureTableDataStoreSingleOperationException<TData>(
+                        "Failed to prepare the entity for merge: " + e.Message, e)
+                    {
+                        Entity = entities[0].Value
+                    };
+                }
+
+                if (batchingMode == BatchingMode.None)
+                {
+                    throw new AzureTableDataStoreMultiOperationException<TData>(
+                        "Failed to prepare the entities for merge: " + e.Message, e)
+                    {
+                        SingleOperationExceptions = new List<AzureTableDataStoreSingleOperationException<TData>>()
+                        {
+                            new AzureTableDataStoreSingleOperationException<TData>("Failed to prepare entity for insert/replace: " + e.Message, e)
+                            {
+                                Entity = currentEntity != null ? currentEntity.Value : default
+                            }
+                        }
+                    };
+                }
+
                 var ex = new AzureTableDataStoreBatchedOperationException<TData>(
                     "Failed to group entities into batches: " + e.Message, e);
                 ex.BatchExceptionContexts.Add(new BatchExceptionContext<TData>()
@@ -1375,110 +1228,87 @@ namespace AzureTableDataStore
             }
 
 
-            // Run the prepared batches.
+            // Run the prepared batches/items.
+
+
+            if (batchingMode == BatchingMode.None)
+            {
+                var failedOps = new ConcurrentBag<AzureTableDataStoreSingleOperationException<TData>>();
+                try
+                {
+                    var parallelOpGroups = ArrayExtensions.SplitToBatches(allEntities, 20);
+                    foreach (var parallelOpGroup in parallelOpGroups)
+                    {
+                        var parallelOpsAsTasks = parallelOpGroup.Select(
+                            item => RunAsSingleOperation(true, TableOperationType.Merge,
+                                largeBlobNullBehavior, item, failedOps));
+                        var parallelTaskRuns = Task.WhenAll(parallelOpsAsTasks);
+                        await parallelTaskRuns;
+                    }
+
+                    if (failedOps.Count > 1)
+                    {
+                        var exception = new AzureTableDataStoreMultiOperationException<TData>(
+                            "One or more operations had errors");
+                        exception.SingleOperationExceptions.AddRange(failedOps);
+                        throw exception;
+                    }
+
+                    if (failedOps.Count == 1 && allEntities.Count == 1)
+                    {
+                        failedOps.TryTake(out var ex);
+                        throw ex;
+                    }
+                }
+                catch (AzureTableDataStoreSingleOperationException<TData>)
+                {
+                    throw;
+                }
+                catch (AzureTableDataStoreMultiOperationException<TData>)
+                {
+                    throw;
+                }
+                catch (Exception e) when (allEntities.Count > 1)
+                {
+                    var ex = new AzureTableDataStoreMultiOperationException<TData>(
+                        $"Unexpected exception in multi-operation execution, see inner exception: " + e.Message, e);
+                    ex.SingleOperationExceptions.AddRange(failedOps);
+                    throw ex;
+                }
+                catch (Exception e) when (allEntities.Count == 1)
+                {
+                    var ex = new AzureTableDataStoreSingleOperationException<TData>(
+                        $"Unexpected exception in single operation execution, see inner exception: " + e.Message, e);
+                    ex.Entity = allEntities[0].SourceEntity;
+                    throw ex;
+                }
+
+                return;
+            }
 
             try
             {
 
-                var failedTableBatches = new List<BatchExceptionContext<TData>>();
-
-                // A single batch merge operation.
-                async Task RunAsBatchMergeOperations(List<BatchItem> batchItems)
-                {
-                    // Attempt table op first, and proceed with related blob ops if the table op succeeds.
-
-                    var batchExceptionContext = new BatchExceptionContext<TData>();
-                    batchExceptionContext.BatchEntities = batchItems.Select(x => x.SourceEntity).ToList();
-
-                    try
-                    {
-                        var tableRef = GetTable();
-                        var batchOp = new TableBatchOperation();
-                        batchItems.ForEach(item => batchOp.Add(TableOperation.Merge(item.SerializedEntity)));
-                        await tableRef.ExecuteBatchAsync(batchOp);
-                    }
-                    catch (Exception e)
-                    {
-                        batchExceptionContext.TableOperationException = e;
-                        failedTableBatches.Add(batchExceptionContext);
-                        return;
-                    }
-
-                    if (batchingMode != BatchingMode.Loose)
-                        return;
-
-                    // Handle blob ops with some degree of parallelism.
-                    // Collect failed blob operations to a list, later to be stored into an aggregate exception.
-                    try
-                    {
-                        var flattenedUploadList =
-                            new List<(TData sourceEntity, DynamicTableEntity serializedEntity,
-                                ReflectionUtils.PropertyRef<LargeBlob> blobRef)>();
-                        batchItems.ForEach(x =>
-                            x.LargeBlobRefs.ForEach(r =>
-                                flattenedUploadList.Add((x.SourceEntity, x.SerializedEntity, r))));
-
-                        var parallelUploadGroups = ArrayExtensions.SplitToBatches(flattenedUploadList, 10);
-
-                        foreach (var parallelUploadGroup in parallelUploadGroups)
-                        {
-                            Task collectiveUploadTask = null;
-                            try
-                            {
-                                var parallelUploadTasks = parallelUploadGroup.Select(blobOp =>
-                                {
-                                    var pk = blobOp.serializedEntity.PartitionKey;
-                                    var rk = blobOp.serializedEntity.RowKey;
-
-                                    return HandleBlobAndUpdateReference(blobOp.sourceEntity, blobOp.blobRef,
-                                        BuildBlobPath(blobOp.blobRef, pk, rk),
-                                        true, largeBlobNullBehavior);
-                                });
-
-                                collectiveUploadTask = Task.WhenAll(parallelUploadTasks);
-                                await collectiveUploadTask;
-                            }
-                            catch (Exception)
-                            {
-                                foreach (var ex in collectiveUploadTask.Exception.InnerExceptions)
-                                {
-                                    if (ex is AzureTableDataStoreBlobOperationException<TData> blobEx)
-                                        batchExceptionContext.BlobOperationExceptions.Add(blobEx);
-                                    else
-                                        batchExceptionContext.BlobOperationExceptions.Add(
-                                            new AzureTableDataStoreBlobOperationException<TData>(ex.Message,
-                                                inner: ex));
-                                }
-                                failedTableBatches.Add(batchExceptionContext);
-                            }
-                        }
-
-                    }
-                    catch (Exception e)
-                    {
-                        var unexpected =
-                            new AzureTableDataStoreBlobOperationException<TData>("Unhandled exception: " + e.Message,
-                                inner: e);
-                        batchExceptionContext.BlobOperationExceptions.Add(unexpected);
-                        failedTableBatches.Add(batchExceptionContext);
-                    }
-                }
+                var failedTableBatches = new ConcurrentBag<BatchExceptionContext<TData>>();
 
                 var parallelBatchGroups = ArrayExtensions.SplitToBatches(entityBatches, 10);
                 foreach (var batchGroup in parallelBatchGroups)
                 {
-                    var batchGroupAsTasks = batchGroup.Select(RunAsBatchMergeOperations);
+                    var batchGroupAsTasks = batchGroup.Select(
+                        batchItems => RunAsBatchOperations(true, batchingMode, TableOperationType.Merge,
+                            largeBlobNullBehavior, batchItems, failedTableBatches));
                     var parallelTaskRuns = Task.WhenAll(batchGroupAsTasks);
                     await parallelTaskRuns;
+
                 }
 
                 // if any failed table batches or blob uploads, throw a collective AzureTableDataStoreBatchedOperationException
                 if (failedTableBatches.Any())
                 {
-                    string exceptionMessage = "One or more batches failed to merge";
+                    string exceptionMessage = "One or more Table merge batch calls failed, see BatchExceptionContexts for more information.";
                     throw new AzureTableDataStoreBatchedOperationException<TData>(exceptionMessage)
                     {
-                        BatchExceptionContexts = failedTableBatches
+                        BatchExceptionContexts = failedTableBatches.ToList()
                     };
                 }
 
@@ -1489,7 +1319,8 @@ namespace AzureTableDataStore
             }
             catch (Exception e)
             {
-                var ex = new AzureTableDataStoreBatchedOperationException<TData>($"Unexpected exception in batch merge: " + e.Message,
+                var ex = new AzureTableDataStoreBatchedOperationException<TData>(
+                    $"Unexpected exception in batch merge: " + e.Message,
                     e);
                 ex.BatchExceptionContexts.Add(new BatchExceptionContext<TData>()
                 {
@@ -1498,25 +1329,17 @@ namespace AzureTableDataStore
                 throw ex;
             }
 
+
         }
+
 
         public async Task MergeAsync(BatchingMode batchingMode, Expression<Func<TData, object>> selectMergedPropertiesExpression, 
             LargeBlobNullBehavior largeBlobNullBehavior = LargeBlobNullBehavior.IgnoreProperty, params DataStoreEntity<TData>[] entities)
         {
             if (entities == null || entities.Length == 0)
                 return;
-            
-            switch (entities.Length)
-            {
-                case 1:
-                    await MergeOneAsync(selectMergedPropertiesExpression, entities.First(), largeBlobNullBehavior);
-                    break;
-                default:
-                    if (batchingMode != BatchingMode.None) await MergeBatchedAsync(selectMergedPropertiesExpression, batchingMode, largeBlobNullBehavior, entities);
-                    else await MergeMultipleAsync(selectMergedPropertiesExpression, entities, largeBlobNullBehavior);
-                    return;
-            }
-        
+
+            await MergeInternalAsync(selectMergedPropertiesExpression, batchingMode, largeBlobNullBehavior, entities);
         }
 
         /// <summary>

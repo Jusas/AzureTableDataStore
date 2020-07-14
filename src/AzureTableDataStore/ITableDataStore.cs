@@ -91,6 +91,7 @@ namespace AzureTableDataStore
         /// <exception cref="AzureTableDataStoreSingleOperationException{TData}"></exception>
         /// <exception cref="AzureTableDataStoreBatchedOperationException{TData}"></exception>
         /// <exception cref="AzureTableDataStoreMultiOperationException{TData}"></exception>
+        /// <exception cref="AzureTableDataStoreEntityValidationException{TData}"></exception>
         /// <returns></returns>
         Task InsertAsync(BatchingMode batchingMode, params TData[] entities);
 
@@ -109,6 +110,7 @@ namespace AzureTableDataStore
         /// <exception cref="AzureTableDataStoreSingleOperationException{TData}"></exception>
         /// <exception cref="AzureTableDataStoreBatchedOperationException{TData}"></exception>
         /// <exception cref="AzureTableDataStoreMultiOperationException{TData}"></exception>
+        /// <exception cref="AzureTableDataStoreEntityValidationException{TData}"></exception>
         /// <returns></returns>
         Task InsertOrReplaceAsync(BatchingMode batchingMode, params TData[] entities);
 
@@ -146,6 +148,7 @@ namespace AzureTableDataStore
         /// <exception cref="AzureTableDataStoreSingleOperationException{TData}"></exception>
         /// <exception cref="AzureTableDataStoreBatchedOperationException{TData}"></exception>
         /// <exception cref="AzureTableDataStoreMultiOperationException{TData}"></exception>
+        /// <exception cref="AzureTableDataStoreEntityValidationException{TData}"></exception>
         /// <returns></returns>
         Task MergeAsync(BatchingMode batchingMode, Expression<Func<TData, object>> selectMergedPropertiesExpression, LargeBlobNullBehavior largeBlobNullBehavior = LargeBlobNullBehavior.IgnoreProperty,
             params TData[] entities);
@@ -184,6 +187,7 @@ namespace AzureTableDataStore
         /// <exception cref="AzureTableDataStoreSingleOperationException{TData}"></exception>
         /// <exception cref="AzureTableDataStoreBatchedOperationException{TData}"></exception>
         /// <exception cref="AzureTableDataStoreMultiOperationException{TData}"></exception>
+        /// <exception cref="AzureTableDataStoreEntityValidationException{TData}"></exception>
         /// <returns></returns>
         Task MergeAsync(BatchingMode batchingMode, Expression<Func<TData, object>> selectMergedPropertiesExpression, LargeBlobNullBehavior largeBlobNullBehavior = LargeBlobNullBehavior.IgnoreProperty,
             params DataStoreEntity<TData>[] entities);

@@ -114,6 +114,11 @@ namespace AzureTableDataStore
         /// The Table Storage exception that may have occured. Will be null if only Blob operation exceptions occurred.
         /// </summary>
         public Exception TableOperationException { get; internal set; }
+
+        /// <summary>
+        /// The entity that was currently being handled, if it can be singled out.
+        /// </summary>
+        public TData CurrentEntity { get; internal set; }
     }
 
     /// <summary>
