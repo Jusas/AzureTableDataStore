@@ -182,7 +182,10 @@ namespace AzureTableDataStore
             
             if (entity.Properties.Count > 252)
                 errors.Add("Entity may only contain 252 properties (255 - rowkey, partitionkey, timestamp)");
-            
+            if(string.IsNullOrEmpty(entity.PartitionKey))
+                errors.Add("Partition key cannot be empty");
+            if (string.IsNullOrEmpty(entity.RowKey))
+                errors.Add("Row key cannot be empty");
             if (Encoding.Unicode.GetByteCount(entity.PartitionKey ?? "") > 1024) 
                 errors.Add("Partition key length cannot exceed 1024 bytes");
             if (Encoding.Unicode.GetByteCount(entity.RowKey ?? "") > 1024)

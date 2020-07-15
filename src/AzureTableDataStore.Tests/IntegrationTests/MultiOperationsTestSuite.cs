@@ -16,21 +16,11 @@ namespace AzureTableDataStore.Tests.IntegrationTests
     public class MultiOperationsTestSuite : IClassFixture<StorageContextFixture>
     {
 
-        private StorageContextFixture _storageContextFixture;
-        private BlobStorageAssertions _blobStorageAssertions;
-        private TableStorageAssertions _tableStorageAssertions;
+        private StorageContextFixture _fixture;
 
         public MultiOperationsTestSuite(StorageContextFixture fixture)
         {
-            _storageContextFixture = fixture;
-            _blobStorageAssertions = new BlobStorageAssertions(fixture.ConnectionString, fixture.TableAndContainerName);
-            _tableStorageAssertions = new TableStorageAssertions(fixture.ConnectionString, fixture.TableAndContainerName);
-        }
-
-        public TableDataStore<TelescopePackageProduct> GetTelescopeStore()
-        {
-            return new TableDataStore<TelescopePackageProduct>(_storageContextFixture.ConnectionString, _storageContextFixture.TableAndContainerName,
-                _storageContextFixture.TableAndContainerName, PublicAccessType.None, _storageContextFixture.ConnectionString);
+            _fixture = fixture;
         }
 
         [Fact(/*Skip = "reason"*/)]
@@ -39,7 +29,7 @@ namespace AzureTableDataStore.Tests.IntegrationTests
             // Arrange
 
             var testDataSet = MockData.TelescopeMockDataGenerator.SmallDataSet;
-            var store = GetTelescopeStore();
+            var store = _fixture.GetNewTableDataStore<TelescopePackageProduct>("base");
 
 
             // Act
@@ -48,7 +38,10 @@ namespace AzureTableDataStore.Tests.IntegrationTests
 
             // Assert
 
-            // The following test should assert.
+            var tasks = testDataSet.Select(
+                x => _fixture.AssertTableEntityExistsAsync("base", x.CategoryId, x.ProductId));
+            await Task.WhenAll(tasks);
+
         }
 
 
@@ -57,7 +50,7 @@ namespace AzureTableDataStore.Tests.IntegrationTests
         {
             // Arrange
 
-            var store = GetTelescopeStore();
+            var store = _fixture.GetNewTableDataStore<TelescopePackageProduct>("base");
 
 
             // Act
@@ -131,7 +124,7 @@ namespace AzureTableDataStore.Tests.IntegrationTests
             // Arrange
 
             var testDataSet = MockData.TelescopeMockDataGenerator.SmallDataSet;
-            var store = GetTelescopeStore();
+            var store = _fixture.GetNewTableDataStore<TelescopePackageProduct>("base");
 
             long expectedImgSize;
             using (var newImage = new FileStream("Resources/meade-telescope-n-2001000-lx85-goto.png", FileMode.Open,
@@ -188,7 +181,7 @@ namespace AzureTableDataStore.Tests.IntegrationTests
 
             // Arrange
 
-            var store = GetTelescopeStore();
+            var store = _fixture.GetNewTableDataStore<TelescopePackageProduct>("base");
             var testDataSet = await store.FindAsync((x, dt) => dt < DateTime.UtcNow);
 
             testDataSet.Count.Should().Be(4);
@@ -203,20 +196,20 @@ namespace AzureTableDataStore.Tests.IntegrationTests
             var mainImageFilename3 = newBlobFor3.Filename;
             var mainImageFilename4 = newBlobFor4.Filename;
 
-            var blobPath1 = store.BuildBlobPath(_storageContextFixture.TableAndContainerName, testDataSet[0].CategoryId,
+            var blobPath1 = store.BuildBlobPath(_fixture.TableAndContainerNames["base"], testDataSet[0].CategoryId,
                 testDataSet[0].ProductId, "MainImage", mainImageFilename1);
-            var blobPath2 = store.BuildBlobPath(_storageContextFixture.TableAndContainerName, testDataSet[1].CategoryId,
+            var blobPath2 = store.BuildBlobPath(_fixture.TableAndContainerNames["base"], testDataSet[1].CategoryId,
                 testDataSet[1].ProductId, "MainImage", mainImageFilename2);
-            var blobPath3 = store.BuildBlobPath(_storageContextFixture.TableAndContainerName, testDataSet[2].CategoryId,
+            var blobPath3 = store.BuildBlobPath(_fixture.TableAndContainerNames["base"], testDataSet[2].CategoryId,
                 testDataSet[2].ProductId, "MainImage", mainImageFilename3);
-            var blobPath4 = store.BuildBlobPath(_storageContextFixture.TableAndContainerName, testDataSet[3].CategoryId,
+            var blobPath4 = store.BuildBlobPath(_fixture.TableAndContainerNames["base"], testDataSet[3].CategoryId,
                 testDataSet[3].ProductId, "MainImage", mainImageFilename4);
 
-            _blobStorageAssertions.BlobExists(blobPath1);
-            _blobStorageAssertions.BlobExists(blobPath2);
-            _blobStorageAssertions.BlobDoesNotExist(blobPath3);
-            _blobStorageAssertions.BlobDoesNotExist(blobPath4);
-
+            _fixture.AssertBlobExists("base", blobPath1);
+            _fixture.AssertBlobExists("base", blobPath2);
+            _fixture.AssertBlobDoesNotExist("base", blobPath3);
+            _fixture.AssertBlobDoesNotExist("base", blobPath4);
+            
             testDataSet[0].Name = "Telescope 1";
             testDataSet[0].Description = "Changed";
             testDataSet[0].MainImage = null;
@@ -242,11 +235,11 @@ namespace AzureTableDataStore.Tests.IntegrationTests
 
             // Assert
 
-            _blobStorageAssertions.BlobExists(blobPath3);
-            _blobStorageAssertions.BlobExists(blobPath4);
-            _blobStorageAssertions.BlobDoesNotExist(blobPath1);
-            _blobStorageAssertions.BlobDoesNotExist(blobPath2);
-
+            _fixture.AssertBlobExists("base", blobPath3);
+            _fixture.AssertBlobExists("base", blobPath4);
+            _fixture.AssertBlobDoesNotExist("base", blobPath1);
+            _fixture.AssertBlobDoesNotExist("base", blobPath2);
+            
         }
 
         [Fact(/*Skip = "reason"*/)]
@@ -256,21 +249,21 @@ namespace AzureTableDataStore.Tests.IntegrationTests
 
             // Arrange
 
-            var store = GetTelescopeStore();
+            var store = _fixture.GetNewTableDataStore<TelescopePackageProduct>("base");
 
             var allItems = await store.FindAsync((x, dt) => dt < DateTimeOffset.UtcNow);
 
             allItems.Count.Should().Be(4);
 
-            // We're gonna set the MainImages to null, and this should cause the deletion of the blobs already uploaded to storage.
+            // We're gonna set the MainImages to null, and because we're replacing, this should cause the deletion of the blobs already uploaded to storage.
 
-            var blobPath3 = store.BuildBlobPath(_storageContextFixture.TableAndContainerName, allItems[2].CategoryId,
+            var blobPath3 = store.BuildBlobPath(_fixture.TableAndContainerNames["base"], allItems[2].CategoryId,
                 allItems[2].ProductId, "MainImage", allItems[2].MainImage.Filename);
-            var blobPath4 = store.BuildBlobPath(_storageContextFixture.TableAndContainerName, allItems[3].CategoryId,
+            var blobPath4 = store.BuildBlobPath(_fixture.TableAndContainerNames["base"], allItems[3].CategoryId,
                 allItems[3].ProductId, "MainImage", allItems[3].MainImage.Filename);
 
-            _blobStorageAssertions.BlobExists(blobPath3);
-            _blobStorageAssertions.BlobExists(blobPath4);
+            _fixture.AssertBlobExists("base", blobPath3);
+            _fixture.AssertBlobExists("base", blobPath4);
 
             allItems[2].MainImage = null;
             allItems[2].Name = "Replaced 3";
@@ -279,8 +272,8 @@ namespace AzureTableDataStore.Tests.IntegrationTests
 
             await store.InsertOrReplaceAsync(BatchingMode.None, allItems.Skip(2).Take(2).ToArray());
 
-            _blobStorageAssertions.BlobDoesNotExist(blobPath3);
-            _blobStorageAssertions.BlobDoesNotExist(blobPath4);
+            _fixture.AssertBlobDoesNotExist("base", blobPath3);
+            _fixture.AssertBlobDoesNotExist("base", blobPath4);
 
         }
 
@@ -292,7 +285,7 @@ namespace AzureTableDataStore.Tests.IntegrationTests
 
             // Arrange
             
-            var store = GetTelescopeStore();
+            var store = _fixture.GetNewTableDataStore<TelescopePackageProduct>("base");
 
 
             // Act & Assert
@@ -341,7 +334,7 @@ namespace AzureTableDataStore.Tests.IntegrationTests
         {
             // Arrange
 
-            var store = GetTelescopeStore();
+            var store = _fixture.GetNewTableDataStore<TelescopePackageProduct>("base");
 
             // All items that come alphabetically before "Omegon"
             var allBeforeO = await store.FindAsync(x => x.Name.AsComparable() < "O".AsComparable());
@@ -354,7 +347,7 @@ namespace AzureTableDataStore.Tests.IntegrationTests
         {
             // Arrange
 
-            var store = GetTelescopeStore();
+            var store = _fixture.GetNewTableDataStore<TelescopePackageProduct>("base");
 
             // All items that are for astrophotography
             var allForAstrophotography = await store.FindWithMetadataAsync(x => x.Specifications.ForAstrophotography == true);
@@ -367,7 +360,7 @@ namespace AzureTableDataStore.Tests.IntegrationTests
         {
             // Arrange
 
-            var store = GetTelescopeStore();
+            var store = _fixture.GetNewTableDataStore<TelescopePackageProduct>("base");
 
             // All items that are for astrophotography and older than now
             var allForAstrophotography = await store.FindWithMetadataAsync((x, dt) => x.Specifications.ForAstrophotography == true && dt < DateTime.UtcNow);
@@ -387,7 +380,7 @@ namespace AzureTableDataStore.Tests.IntegrationTests
                 itemsToAdd[i].MainImage = null;
             }
 
-            var store = GetTelescopeStore();
+            var store = _fixture.GetNewTableDataStore<TelescopePackageProduct>("base");
 
             // Act
 
@@ -419,7 +412,7 @@ namespace AzureTableDataStore.Tests.IntegrationTests
                 itemsToAdd[i].Name = longText;
             }
 
-            var store = GetTelescopeStore();
+            var store = _fixture.GetNewTableDataStore<TelescopePackageProduct>("base");
 
             // Act
 
@@ -448,7 +441,7 @@ namespace AzureTableDataStore.Tests.IntegrationTests
                 itemsToAdd[i].Name = longText;
             }
 
-            var store = GetTelescopeStore();
+            var store = _fixture.GetNewTableDataStore<TelescopePackageProduct>("base");
             store.UseClientSideValidation = true;
 
             // Act
@@ -468,14 +461,13 @@ namespace AzureTableDataStore.Tests.IntegrationTests
         {
             // Arrange
 
-            // Set images to null so that we can use the batch insert with this data model.
             var itemsToAdd = MockData.TelescopeMockDataGenerator.CreateDataSet(250, partitionKey: "loose1");
             for (var i = 0; i < itemsToAdd.Length; i++)
             {
                 itemsToAdd[i].MainImage = new LargeBlob(itemsToAdd[i].ProductId + ".blob", "just some data", Encoding.UTF8, "text/plain");
             }
 
-            var store = GetTelescopeStore();
+            var store = _fixture.GetNewTableDataStore<TelescopePackageProduct>("base");
             store.UseClientSideValidation = true;
 
             // Act
@@ -485,13 +477,13 @@ namespace AzureTableDataStore.Tests.IntegrationTests
 
             // Assert
 
-            var blobNames = itemsToAdd.Select(x => store.BuildBlobPath(_storageContextFixture.TableAndContainerName,
+            var blobNames = itemsToAdd.Select(x => store.BuildBlobPath(_fixture.TableAndContainerNames["base"],
                 x.CategoryId, x.ProductId, "MainImage", x.MainImage.Filename));
 
-            var tasks = blobNames.Select(n => _blobStorageAssertions.BlobExistsAsync(n));
+            var tasks = blobNames.Select(n => _fixture.AssertBlobExistsAsync("base", n));
             await Task.WhenAll(tasks);
 
-            tasks = itemsToAdd.Select(item => _tableStorageAssertions.TableEntityExistsAsync(item.CategoryId, item.ProductId));
+            tasks = itemsToAdd.Select(item => _fixture.AssertTableEntityExistsAsync("base", item.CategoryId, item.ProductId));
             await Task.WhenAll(tasks);
             
         }
@@ -523,7 +515,7 @@ namespace AzureTableDataStore.Tests.IntegrationTests
                 itemsToAdd2[i].MainImage = new LargeBlob(itemsToAdd2[i].ProductId + ".blob", "just some data", Encoding.UTF8, "text/plain");
             }
 
-            var store = GetTelescopeStore();
+            var store = _fixture.GetNewTableDataStore<TelescopePackageProduct>("base");
             store.UseClientSideValidation = true;
 
             // Act
@@ -573,7 +565,7 @@ namespace AzureTableDataStore.Tests.IntegrationTests
                 itemsToInsertOrReplace[i].MainImage = new LargeBlob(itemsToInsertOrReplace[i].ProductId + ".blob", "some replaced data", Encoding.UTF8, "text/plain");
             }
 
-            var store = GetTelescopeStore();
+            var store = _fixture.GetNewTableDataStore<TelescopePackageProduct>("base");
             store.UseClientSideValidation = true;
 
             // Act
@@ -586,13 +578,13 @@ namespace AzureTableDataStore.Tests.IntegrationTests
 
             // Assert
 
-            var tasks = itemsToInsertOrReplace.Select(item => _tableStorageAssertions.TableEntityExistsAsync(item.CategoryId, item.ProductId));
+            var tasks = itemsToInsertOrReplace.Select(item => _fixture.AssertTableEntityExistsAsync("base", item.CategoryId, item.ProductId));
             await Task.WhenAll(tasks);
 
-            var blobNames = itemsToInsertOrReplace.Select(x => store.BuildBlobPath(_storageContextFixture.TableAndContainerName,
+            var blobNames = itemsToInsertOrReplace.Select(x => store.BuildBlobPath(_fixture.TableAndContainerNames["base"],
                 x.CategoryId, x.ProductId, "MainImage", x.MainImage.Filename));
 
-            tasks = blobNames.Select(n => _blobStorageAssertions.BlobExistsAsync(n));
+            tasks = blobNames.Select(n => _fixture.AssertBlobExistsAsync("base", n));
             await Task.WhenAll(tasks);
 
             foundEntries.Count.Should().Be(10);
@@ -601,18 +593,135 @@ namespace AzureTableDataStore.Tests.IntegrationTests
 
         }
 
-        // TODO Optimize and remove InsertOne/MergeOne - there is no real reason why not join them together.
+
+        [Fact(/*Skip = "reason"*/)]
+        public async Task T16_InsertBatches_LooseMode_WithBlobs_ThenDeleteUsingLooseBatching()
+        {
+            // Arrange
+
+            var itemsToAdd = MockData.TelescopeMockDataGenerator.CreateDataSet(250, partitionKey: "loosedelete1");
+            for (var i = 0; i < itemsToAdd.Length; i++)
+            {
+                itemsToAdd[i].MainImage = new LargeBlob(itemsToAdd[i].ProductId + ".blob", "just some data", Encoding.UTF8, "text/plain");
+            }
+
+            var store = _fixture.GetNewTableDataStore<TelescopePackageProduct>("base");
+            store.UseClientSideValidation = true;
+
+            // Act
+
+            await store.InsertAsync(BatchingMode.Loose, itemsToAdd);
+
+
+            // Assert
+
+            var blobNames = itemsToAdd.Select(x => store.BuildBlobPath(_fixture.TableAndContainerNames["base"],
+                x.CategoryId, x.ProductId, "MainImage", x.MainImage.Filename));
+
+            var tasks = blobNames.Select(n => _fixture.AssertBlobExistsAsync("base", n));
+            await Task.WhenAll(tasks);
+
+            tasks = itemsToAdd.Select(item => _fixture.AssertTableEntityExistsAsync("base", item.CategoryId, item.ProductId));
+            await Task.WhenAll(tasks);
+
+            var itemsToDelete = itemsToAdd.Select(x => (x.CategoryId, x.ProductId)).ToArray();
+
+            await store.DeleteAsync(BatchingMode.Loose, itemsToDelete);
+
+            tasks = blobNames.Select(n => _fixture.AssertBlobDoesNotExistAsync("base", n));
+            await Task.WhenAll(tasks);
+
+            tasks = itemsToAdd.Select(item => _fixture.AssertTableEntityDoesNotExistAsync("base", item.CategoryId, item.ProductId));
+            await Task.WhenAll(tasks);
+
+        }
+
+        [Fact(/*Skip = "reason"*/)]
+        public async Task T17_InsertBatches_LooseMode_WithBlobs_ThenTryDeleteUsingStrongBatching_ShouldFail()
+        {
+            // Arrange
+
+            var itemsToAdd = MockData.TelescopeMockDataGenerator.CreateDataSet(111, partitionKey: "strictdeletefail");
+            for (var i = 0; i < itemsToAdd.Length; i++)
+            {
+                itemsToAdd[i].MainImage = new LargeBlob(itemsToAdd[i].ProductId + ".blob", "just some data", Encoding.UTF8, "text/plain");
+            }
+
+            var store = _fixture.GetNewTableDataStore<TelescopePackageProduct>("base");
+            store.UseClientSideValidation = true;
+
+            // Act
+
+            await store.InsertAsync(BatchingMode.Loose, itemsToAdd);
+
+
+            // Assert
+
+            var blobNames = itemsToAdd.Select(x => store.BuildBlobPath(_fixture.TableAndContainerNames["base"],
+                x.CategoryId, x.ProductId, "MainImage", x.MainImage.Filename));
+
+            var tasks = blobNames.Select(n => _fixture.AssertBlobExistsAsync("base", n));
+            await Task.WhenAll(tasks);
+
+            tasks = itemsToAdd.Select(item => _fixture.AssertTableEntityExistsAsync("base", item.CategoryId, item.ProductId));
+            await Task.WhenAll(tasks);
+
+            var itemsToDelete = itemsToAdd.Select(x => (x.CategoryId, x.ProductId)).ToArray();
+
+            var exception = await Assert.ThrowsAsync<AzureTableDataStoreBatchedOperationException<TelescopePackageProduct>>(
+                () => store.DeleteAsync(BatchingMode.Strong, itemsToDelete));
+
+            exception.BatchExceptionContexts.Count.Should().Be(1);
+            exception.BatchExceptionContexts[0].BatchEntities.Count.Should().Be(111);
+            exception.InnerException.Should().BeOfType<AzureTableDataStoreInternalException>();
+
+        }
+
+        [Fact(/*Skip = "reason"*/)]
+        public async Task T18_InsertBatches_StrictMode_ThenDeleteInStrictMode()
+        {
+            // Arrange
+
+            var itemsToAdd = Enumerable.Range(0, 5).ToList().Select(x => new VerySimpleObject()
+            {
+                Id = "item" + x,
+                Partition = "strictinsertdelete",
+                Value = x
+            });
+            
+            
+            var store = _fixture.GetNewTableDataStore<VerySimpleObject>("simples");
+            store.UseClientSideValidation = true;
+
+            // Act
+
+            await store.InsertAsync(BatchingMode.Strict, itemsToAdd.ToArray());
+
+
+            // Assert
+
+            var tasks = itemsToAdd.Select(item => _fixture.AssertTableEntityExistsAsync("simples", item.Partition, item.Id));
+            await Task.WhenAll(tasks);
+
+            var itemsToDelete = itemsToAdd.Select(x => (x.Partition, x.Id)).ToArray();
+
+            await store.DeleteAsync(BatchingMode.Strict, itemsToDelete);
+
+            tasks = itemsToAdd.Select(item => _fixture.AssertTableEntityDoesNotExistAsync("simples", item.Partition, item.Id));
+            await Task.WhenAll(tasks);
+
+        }
 
         //[Fact(/*Skip = "reason"*/)]
         //public async Task T16_InsertOrReplaceBatches_WithStrongMode_ValidationShouldThrow()
         //{
         //    // Arrange
 
-        //    var itemsToInsertOrReplace = MockData.TelescopeMockDataGenerator.CreateDataSet(10, partitionKey: "strongvalidation1");
+        //    var itemsToInsertOrReplace = MockData.TelescopeMockDataGenerator.CreateDataSet(2, partitionKey: "strongvalidation1");
 
         //    for (var i = 0; i < itemsToInsertOrReplace.Length; i++)
         //    {
-        //        itemsToInsertOrReplace[i].InternalReferenceId = Guid.Empty; ;
+        //        itemsToInsertOrReplace[i].InternalReferenceId = Guid.Empty;
         //        itemsToInsertOrReplace[i].MainImage = new LargeBlob(itemsToInsertOrReplace[i].ProductId + ".blob", "xxx", Encoding.UTF8, "text/plain");
         //    }
 
@@ -620,18 +729,11 @@ namespace AzureTableDataStore.Tests.IntegrationTests
         //    store.UseClientSideValidation = true;
 
         //    // Act
-            
-        //    var exception = await Assert.ThrowsAsync<AzureTableDataStoreBatchedOperationException<TelescopePackageProduct>>(
+
+        //    var exception = await Assert.ThrowsAsync<AzureTableDataStoreEntityValidationException<TelescopePackageProduct>>(
         //        () => store.InsertOrReplaceAsync(BatchingMode.Strong, itemsToInsertOrReplace));
 
-        //    exception.BatchExceptionContexts.Count.Should().Be(1);
-        //    exception.BatchExceptionContexts[0].BatchEntities.Count.Should().Be(10);
-        //    exception.InnerException.Should()
-        //        .BeOfType(typeof(AzureTableDataStoreEntityValidationException<TelescopePackageProduct>));
-        //    var validationException =
-        //        (AzureTableDataStoreEntityValidationException<TelescopePackageProduct>) exception.InnerException;
-            
-        //        validationException.EntityValidationErrors.Count.Should().Be(10);
+        //    exception.EntityValidationErrors.Count.Should().Be(10);
 
         //}
     }

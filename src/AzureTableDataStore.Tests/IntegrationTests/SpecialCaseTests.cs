@@ -10,19 +10,18 @@ namespace AzureTableDataStore.Tests.IntegrationTests
     
     public class SpecialCaseTests : IClassFixture<StorageContextFixture>
     {
-        private StorageContextFixture _storageContextFixture;
+        private StorageContextFixture _fixture;
 
         public SpecialCaseTests(StorageContextFixture fixture)
         {
-            _storageContextFixture = fixture;
+            _fixture = fixture;
         }
 
         [Fact]
         public async Task T01_ConstructIntermediateObjectsWhenRequired()
         {
-            var store = new TableDataStore<EntityWithLargeBlobsOnly>(_storageContextFixture.ConnectionString, _storageContextFixture.TableAndContainerName,
-                _storageContextFixture.TableAndContainerName, PublicAccessType.None, _storageContextFixture.ConnectionString);
-
+            var store = _fixture.GetNewTableDataStore<EntityWithLargeBlobsOnly>("lbo");
+            
             // EntityWithLargeBlobsOnly.Blobs is an object that only holds blobs, which will force us to create the intermediate object "Blobs". This is mainly what we test here.
 
             await store.InsertAsync(BatchingMode.None, new EntityWithLargeBlobsOnly()
@@ -45,8 +44,6 @@ namespace AzureTableDataStore.Tests.IntegrationTests
             retrieved.Blobs.BlobB.Length.Should().Be(4L);
             retrieved.Blobs.BlobA.ContentType.Should().Be("text/plain");
             retrieved.Blobs.BlobB.ContentType.Should().Be("text/plain");
-
-
 
 
         }

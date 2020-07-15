@@ -182,8 +182,30 @@ namespace AzureTableDataStore.Tests.InternalTests
             {
                 translated[i].Should().Be(expectedResults[i]);
             }
-        }        
-        
+        }
+
+        [Fact]
+        public void Should_translate_select_expression_2()
+        {
+
+            Expression<Func<UserProfile, object>> expression = profile =>
+                new { RowKey = "", PartitionKey = "" };
+
+            var expectedResults = new List<string>()
+            {
+                "RowKey",
+                "PartitionKey"
+            };
+
+            var translated = AzureStorageQuerySelectTranslator.TranslateExpressionToMemberNames(expression,
+                _entityPropertyConverterOptions);
+
+            for (var i = 0; i < translated.Count; i++)
+            {
+                translated[i].Should().Be(expectedResults[i]);
+            }
+        }
+
         [Fact]
         public void Should_translate_deeply_nested_select_expression()
         {

@@ -149,6 +149,7 @@ namespace AzureTableDataStore
         /// <exception cref="AzureTableDataStoreBatchedOperationException{TData}"></exception>
         /// <exception cref="AzureTableDataStoreMultiOperationException{TData}"></exception>
         /// <exception cref="AzureTableDataStoreEntityValidationException{TData}"></exception>
+        /// <exception cref="AzureTableDataStoreInternalException"></exception>
         /// <returns></returns>
         Task MergeAsync(BatchingMode batchingMode, Expression<Func<TData, object>> selectMergedPropertiesExpression, LargeBlobNullBehavior largeBlobNullBehavior = LargeBlobNullBehavior.IgnoreProperty,
             params TData[] entities);
@@ -188,6 +189,7 @@ namespace AzureTableDataStore
         /// <exception cref="AzureTableDataStoreBatchedOperationException{TData}"></exception>
         /// <exception cref="AzureTableDataStoreMultiOperationException{TData}"></exception>
         /// <exception cref="AzureTableDataStoreEntityValidationException{TData}"></exception>
+        /// <exception cref="AzureTableDataStoreInternalException"></exception>
         /// <returns></returns>
         Task MergeAsync(BatchingMode batchingMode, Expression<Func<TData, object>> selectMergedPropertiesExpression, LargeBlobNullBehavior largeBlobNullBehavior = LargeBlobNullBehavior.IgnoreProperty,
             params DataStoreEntity<TData>[] entities);
@@ -211,6 +213,7 @@ namespace AzureTableDataStore
         /// The maximum number of limits to return. If null, does not limit the number of results.
         /// </param>
         /// <exception cref="AzureTableDataStoreQueryException"></exception>
+        /// <exception cref="AzureTableDataStoreInternalException"></exception>
         Task<IList<TData>> FindAsync(Expression<Func<TData, bool>> queryExpression, Expression<Func<TData, object>> selectExpression = null, int? limit = null);
 
         /// <summary>
@@ -232,6 +235,7 @@ namespace AzureTableDataStore
         /// <param name="limit">The maximum number of limits to return. If null, does not limit the number of results.</param>
         /// <returns></returns>
         /// <exception cref="AzureTableDataStoreQueryException"></exception>
+        /// <exception cref="AzureTableDataStoreInternalException"></exception>
         Task<IList<TData>> FindAsync(Expression<Func<TData, DateTimeOffset, bool>> queryExpression, Expression<Func<TData, object>> selectExpression = null, int? limit = null);
 
         /// <summary>
@@ -253,6 +257,7 @@ namespace AzureTableDataStore
         /// <param name="limit">The maximum number of limits to return. If null, does not limit the number of results.</param>
         /// <returns></returns>
         /// <exception cref="AzureTableDataStoreQueryException"></exception>
+        /// <exception cref="AzureTableDataStoreInternalException"></exception>
         Task<IList<DataStoreEntity<TData>>> FindWithMetadataAsync(Expression<Func<TData, bool>> queryExpression, Expression<Func<TData, object>> selectExpression = null, int? limit = null);
 
         /// <summary>
@@ -277,6 +282,7 @@ namespace AzureTableDataStore
         /// <param name="limit">The maximum number of limits to return. If null, does not limit the number of results.</param>
         /// <returns></returns>
         /// <exception cref="AzureTableDataStoreQueryException"></exception>
+        /// <exception cref="AzureTableDataStoreInternalException"></exception>
         Task<IList<DataStoreEntity<TData>>> FindWithMetadataAsync(Expression<Func<TData, DateTimeOffset, bool>> queryExpression, Expression<Func<TData, object>> selectExpression = null, int? limit = null);
 
         /// <summary>
@@ -296,6 +302,7 @@ namespace AzureTableDataStore
         /// </param>
         /// <returns></returns>
         /// <exception cref="AzureTableDataStoreQueryException"></exception>
+        /// <exception cref="AzureTableDataStoreInternalException"></exception>
         Task<TData> GetAsync(Expression<Func<TData, bool>> queryExpression, Expression<Func<TData, object>> selectExpression = null);
 
         /// <summary>
@@ -316,6 +323,7 @@ namespace AzureTableDataStore
         /// </param>
         /// <returns></returns>
         /// <exception cref="AzureTableDataStoreQueryException"></exception>
+        /// <exception cref="AzureTableDataStoreInternalException"></exception>
         Task<TData> GetAsync(Expression<Func<TData, DateTimeOffset, bool>> queryExpression, Expression<Func<TData, object>> selectExpression = null);
 
         /// <summary>
@@ -339,6 +347,7 @@ namespace AzureTableDataStore
         /// </param>
         /// <returns></returns>
         /// <exception cref="AzureTableDataStoreQueryException"></exception>
+        /// <exception cref="AzureTableDataStoreInternalException"></exception>
         Task<DataStoreEntity<TData>> GetWithMetadataAsync(Expression<Func<TData, bool>> queryExpression, Expression<Func<TData, object>> selectExpression = null);
 
         /// <summary>
@@ -363,6 +372,7 @@ namespace AzureTableDataStore
         /// </param>
         /// <returns></returns>
         /// <exception cref="AzureTableDataStoreQueryException"></exception>
+        /// <exception cref="AzureTableDataStoreInternalException"></exception>
         Task<DataStoreEntity<TData>> GetWithMetadataAsync(Expression<Func<TData, DateTimeOffset, bool>> queryExpression, Expression<Func<TData, object>> selectExpression = null);
 
         /// <summary>
@@ -380,15 +390,12 @@ namespace AzureTableDataStore
         /// Note: this action is irreversible.
         /// </para>
         /// </summary>
-        /// <param name="useBatching">
-        /// Use batches to perform the deletion.
-        /// <para>
-        /// Batching cannot be used for deleting entities with <see cref="LargeBlob"/> properties as that cannot be done as a transaction.
-        /// </para>
+        /// <param name="batchingMode">
+        /// Chooses the batching mode to use when there are multiple entities.
         /// </param>
         /// <param name="entities">The entities to delete.</param>
         /// <returns></returns>
-        //Task DeleteAsync(bool useBatching, params TData[] entities);
+        Task DeleteAsync(BatchingMode batchingMode, params TData[] entities);
 
         /// <summary>
         /// Deletes entities from table using the specified row and partition keys. If these entities also contain <see cref="LargeBlob"/> properties, those blobs will be deleted.
@@ -396,28 +403,31 @@ namespace AzureTableDataStore
         /// Note: this action is irreversible.
         /// </para>
         /// </summary>
-        /// <param name="useBatching">
-        /// Use batches to perform the deletion.
-        /// <para>
-        /// Batching cannot be used for deleting entities with <see cref="LargeBlob"/> properties as that cannot be done as a transaction.
-        /// </para>
+        /// <param name="batchingMode">
+        /// Chooses the batching mode to use when there are multiple entities.
         /// </param>
-        /// <param name="ids">The entity partition key + row key pairs to delete.</param>
+        /// <param name="entityIds">The entity partition key + row key pairs to delete.</param>
         /// <returns></returns>
-        //Task DeleteAsync(bool useBatching, params (string rowKey, string partitionKey)[] ids);
+        Task DeleteAsync(BatchingMode batchingMode, params (string partitionKey, string rowKey)[] entityIds);
 
         /// <summary>
         /// Deletes entities from table that match the query expression. If these entities also contain <see cref="LargeBlob"/> properties, those blobs will be deleted.
         /// <para>
-        /// Effectively performs a query, and then runs batch delete operations on those results.
+        /// Effectively performs a query, and then runs delete operations on those results. Basically a convenience method.
         /// </para>
         /// <para>
         /// Note: this action is irreversible.
         /// </para>
         /// </summary>
+        /// <param name="batchingMode">
+        /// Chooses the batching mode to use when there are multiple entities.
+        /// </param>
         /// <param name="queryExpression">The query expression used to find entities to delete</param>
         /// <returns></returns>
-        //Task DeleteAsync(Expression<Func<TData, bool>> queryExpression);
+        Task DeleteAsync(BatchingMode batchingMode, Expression<Func<TData, bool>> queryExpression);
+
+
+
         //Task EnumerateAsync(Func<TData, Task> enumeratorFunc);
         //Task EnumerateAsync(Expression<Func<TData, bool>> queryExpression, Func<TData, Task> enumeratorFunc);
     }

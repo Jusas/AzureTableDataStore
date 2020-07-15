@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using Azure.Storage.Blobs;
+using Azure.Storage.Blobs.Models;
 using Microsoft.Azure.Cosmos.Table;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -11,15 +12,11 @@ namespace AzureTableDataStore.Tests.IntegrationTests
 {
     public class StorageContextFixture : IDisposable
     {
-        public string TableAndContainerName => TableAndContainerNames.First();
-        public List<string> TableAndContainerNames { get; } = new List<string>();
+        public Dictionary<string, string> TableAndContainerNames { get; } = new Dictionary<string, string>();
         public string ConnectionString { get; }
 
         public StorageContextFixture()
         {
-            var name = "test" + Guid.NewGuid().ToString().Substring(0, 8);
-            TableAndContainerNames.Add(name);
-
             if (File.Exists("Properties\\launchSettings.json"))
             {
                 var launchSettings = File.ReadAllText("Properties\\launchSettings.json");
@@ -34,17 +31,24 @@ namespace AzureTableDataStore.Tests.IntegrationTests
 
             ConnectionString = Environment.
                 GetEnvironmentVariable("TestAzureStorageConnectionString") ?? "UseDevelopmentStorage=true";
-
-
         }
 
-        public string GetNewTableName()
+        public string CreateTestTableAndContainer(string testContext)
         {
             var name = "test" + Guid.NewGuid().ToString().Substring(0, 8);
-            TableAndContainerNames.Add(name);
+            TableAndContainerNames.Add(testContext, name);
             return name;
         }
 
+        public TableDataStore<T> GetNewTableDataStore<T>(string testContext) where T : new()
+        {
+            var tableAndContainerName = TableAndContainerNames.ContainsKey(testContext)
+                ? TableAndContainerNames[testContext]
+                : CreateTestTableAndContainer(testContext);
+
+            return new TableDataStore<T>(ConnectionString, tableAndContainerName, tableAndContainerName, 
+                PublicAccessType.None);
+        }
 
         public void DeleteTables()
         {
@@ -53,7 +57,7 @@ namespace AzureTableDataStore.Tests.IntegrationTests
 
             foreach (var tableAndContainerName in TableAndContainerNames)
             {
-                var table = cloudTableClient.GetTableReference(tableAndContainerName);
+                var table = cloudTableClient.GetTableReference(tableAndContainerName.Value);
                 table.DeleteIfExists();
             }
         }
@@ -64,7 +68,7 @@ namespace AzureTableDataStore.Tests.IntegrationTests
             
             foreach (var tableAndContainerName in TableAndContainerNames)
             {
-                var containerClient = blobServiceClient.GetBlobContainerClient(tableAndContainerName);
+                var containerClient = blobServiceClient.GetBlobContainerClient(tableAndContainerName.Value);
                 containerClient.DeleteIfExists();
             }
         }

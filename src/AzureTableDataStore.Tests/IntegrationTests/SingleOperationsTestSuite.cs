@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using Azure.Storage.Blobs.Models;
+using AzureTableDataStore.Tests.Infrastructure;
 using AzureTableDataStore.Tests.Models;
 using FluentAssertions;
 using Xunit;
@@ -13,18 +14,11 @@ namespace AzureTableDataStore.Tests.IntegrationTests
     [TestCaseOrderer("AzureTableDataStore.Tests.Infrastructure.AlphabeticalTestCaseOrderer", "AzureTableDataStore.Tests")]
     public class SingleOperationsTestSuite : IClassFixture<StorageContextFixture>
     {
-
-        public TableDataStore<TelescopePackageProduct> GetTelescopeStore()
-        {
-            return new TableDataStore<TelescopePackageProduct>(_storageContextFixture.ConnectionString, _storageContextFixture.TableAndContainerName,
-                _storageContextFixture.TableAndContainerName, PublicAccessType.None, _storageContextFixture.ConnectionString);
-        }
-
-        private StorageContextFixture _storageContextFixture;
+        private StorageContextFixture _fixture;
         
         public SingleOperationsTestSuite(StorageContextFixture fixture)
         {
-            _storageContextFixture = fixture;
+            _fixture = fixture;
         }
 
         [Fact(/*Skip = "reason"*/)]
@@ -36,10 +30,15 @@ namespace AzureTableDataStore.Tests.IntegrationTests
 
             // Act
 
-            var store = GetTelescopeStore();
+            var store = _fixture.GetNewTableDataStore<TelescopePackageProduct>("base");
             await store.InsertAsync(BatchingMode.None, newItem);
 
-            // No assertions (assume ok if no exceptions thrown)
+            
+            _fixture.AssertTableEntityExists("base", newItem.CategoryId, newItem.ProductId);
+
+            var blobPath = store.BuildBlobPath(_fixture.TableAndContainerNames["base"],
+                newItem.CategoryId, newItem.ProductId, "MainImage", newItem.MainImage.Filename);
+            _fixture.AssertBlobExists("base", blobPath);
         }
 
         [Fact(/*Skip = "reason"*/)]
@@ -47,7 +46,7 @@ namespace AzureTableDataStore.Tests.IntegrationTests
         {
             // Arrange
 
-            var store = GetTelescopeStore();
+            var store = _fixture.GetNewTableDataStore<TelescopePackageProduct>("base");
 
             // Act
 
@@ -102,7 +101,7 @@ namespace AzureTableDataStore.Tests.IntegrationTests
         [Fact(/*Skip = "reason"*/)]
         public async Task T03_Get_One_WithSelectedProperties()
         {
-            var store = GetTelescopeStore();
+            var store = _fixture.GetNewTableDataStore<TelescopePackageProduct>("base");
 
             var result = await store.GetAsync(x => x.CategoryId == "telescopes-full" && x.ProductId == "omegon-ac-70-700-az20", telescope => new
             {
@@ -130,7 +129,7 @@ namespace AzureTableDataStore.Tests.IntegrationTests
         [Fact(/*Skip = "reason"*/)]
         public async Task T04_Get_One_WithTimestampClause()
         {
-            var store = GetTelescopeStore();
+            var store = _fixture.GetNewTableDataStore<TelescopePackageProduct>("base");
 
             var result = await store.GetAsync((item, ts) =>
                 item.CategoryId == "telescopes-full" && item.ProductId == "omegon-ac-70-700-az20" && ts < DateTime.UtcNow);
@@ -141,7 +140,7 @@ namespace AzureTableDataStore.Tests.IntegrationTests
         [Fact(/*Skip = "reason"*/)]
         public async Task T05_Get_One_WithMetadata()
         {
-            var store = GetTelescopeStore();
+            var store = _fixture.GetNewTableDataStore<TelescopePackageProduct>("base");
 
             var result = await store.GetWithMetadataAsync(item =>
                 item.CategoryId == "telescopes-full" && item.ProductId == "omegon-ac-70-700-az20");
@@ -158,7 +157,7 @@ namespace AzureTableDataStore.Tests.IntegrationTests
         [Fact(/*Skip = "reason"*/)]
         public async Task T06_Get_One_WithMetadataAndTimestampClause()
         {
-            var store = GetTelescopeStore();
+            var store = _fixture.GetNewTableDataStore<TelescopePackageProduct>("base");
 
             var result = await store.GetWithMetadataAsync((item, ts) =>
                 item.CategoryId == "telescopes-full" && item.ProductId == "omegon-ac-70-700-az20" && ts < DateTime.UtcNow);
@@ -175,7 +174,7 @@ namespace AzureTableDataStore.Tests.IntegrationTests
         [Fact(/*Skip = "reason"*/)]
         public async Task T07_InsertOrReplace_One()
         {
-            var store = GetTelescopeStore();
+            var store = _fixture.GetNewTableDataStore<TelescopePackageProduct>("base");
 
             // Same row and partition key as the previously created instance.
             var item = MockData.TelescopeMockDataGenerator.CreateDataSet(1).First();
@@ -193,6 +192,58 @@ namespace AzureTableDataStore.Tests.IntegrationTests
 
         }
 
+
+        [Fact(/*Skip = "reason"*/)]
+        public async Task T08_Insert_One_WithLargeBlob_Then_DeleteOne()
+        {
+            // Arrange
+
+            var newItem = MockData.TelescopeMockDataGenerator.CreateDataSet(1).First();
+            newItem.ProductId = "tobedeleted";
+
+            // Act
+
+            var store = _fixture.GetNewTableDataStore<TelescopePackageProduct>("t08");
+            await store.InsertAsync(BatchingMode.None, newItem);
+
+            var blobPath = store.BuildBlobPath(_fixture.TableAndContainerNames["t08"],
+                newItem.CategoryId, newItem.ProductId, "MainImage", newItem.MainImage.Filename);
+
+            _fixture.AssertTableEntityExists("t08", newItem.CategoryId, newItem.ProductId);
+            _fixture.AssertBlobExists("t08", blobPath);
+            
+            await store.DeleteAsync(BatchingMode.None, newItem);
+
+            _fixture.AssertTableEntityDoesNotExist("t08", newItem.CategoryId, newItem.ProductId);
+            _fixture.AssertBlobDoesNotExist("t08", blobPath);
+
+        }
+
+        [Fact(/*Skip = "reason"*/)]
+        public async Task T09_Insert_One_WithLargeBlob_Then_DeleteOne_UsingJustEntityKeys()
+        {
+            // Arrange
+
+            var newItem = MockData.TelescopeMockDataGenerator.CreateDataSet(1).First();
+            newItem.ProductId = "tobedeleted2";
+
+            // Act
+
+            var store = _fixture.GetNewTableDataStore<TelescopePackageProduct>("t09");
+            await store.InsertAsync(BatchingMode.None, newItem);
+
+            var blobPath = store.BuildBlobPath(_fixture.TableAndContainerNames["t09"],
+                newItem.CategoryId, newItem.ProductId, "MainImage", newItem.MainImage.Filename);
+
+            _fixture.AssertTableEntityExists("t09", newItem.CategoryId, newItem.ProductId);
+            _fixture.AssertBlobExists("t09", blobPath);
+
+            await store.DeleteAsync(BatchingMode.None, (newItem.CategoryId, newItem.ProductId));
+
+            _fixture.AssertTableEntityDoesNotExist("t09", newItem.CategoryId, newItem.ProductId);
+            _fixture.AssertBlobDoesNotExist("t09", blobPath);
+
+        }
 
     }
 }
