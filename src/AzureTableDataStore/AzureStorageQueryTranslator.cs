@@ -8,6 +8,10 @@ using Microsoft.Azure.Cosmos.Table;
 
 namespace AzureTableDataStore
 {
+    /// <summary>
+    /// Converts expression queries like <c>entity => entity.Prop1 == "foo" &amp;&amp; entity.Size &lt; 500</c> into
+    /// TableQueries.
+    /// </summary>
     internal class AzureStorageQueryTranslator : ExpressionVisitor
     {
         private StringBuilder Filter = new StringBuilder();

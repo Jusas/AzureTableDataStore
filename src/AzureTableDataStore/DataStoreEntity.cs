@@ -5,7 +5,7 @@ namespace AzureTableDataStore
     /// <summary>
     /// Class representing a data entity stored in Table Storage: it holds the additional fields <see cref="DataStoreEntity{TData}.ETag"/> and <see cref="DataStoreEntity{TData}.Timestamp"/>.
     /// </summary>
-    /// <typeparam name="TData"></typeparam>
+    /// <typeparam name="TData">The entity type.</typeparam>
     public class DataStoreEntity<TData> where TData:new()
     {
         /// <summary>
@@ -27,12 +27,23 @@ namespace AzureTableDataStore
         {
         }
 
+        /// <summary>
+        /// Initializes an entity with the specified ETag.
+        /// </summary>
+        /// <param name="etag"></param>
+        /// <param name="value"></param>
         public DataStoreEntity(string etag, TData value)
         {
             ETag = etag;
             Value = value;
         }
 
+        /// <summary>
+        /// Initializes an entity with the specified ETag and Timestamp.
+        /// </summary>
+        /// <param name="etag"></param>
+        /// <param name="value"></param>
+        /// <param name="timestamp"></param>
         public DataStoreEntity(string etag, TData value, DateTimeOffset timestamp)
         {
             ETag = etag;

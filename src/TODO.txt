@@ -9,4 +9,4 @@
 	- introduce null behavior: decide whether to remove the property or ignore null values in merge operations.
 	- requires a lot of work, basically will need to forget EntityPropertyConverter.Flatten and ConvertBack and implement it all by myself
 - test validations fully
-- LargeBlob.GetUrl
+- note: input streams should be seekable and support getting Length

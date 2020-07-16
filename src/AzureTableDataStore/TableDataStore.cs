@@ -15,6 +15,7 @@ using System.Runtime.CompilerServices;
 using System.Runtime.Serialization;
 using System.Threading.Tasks;
 using Azure;
+using Azure.Storage.Blobs.Specialized;
 
 [assembly: InternalsVisibleTo("AzureTableDataStore.Tests")]
 
@@ -84,6 +85,8 @@ namespace AzureTableDataStore
             }
         }
 
+        private BlobUriBuilder _blobUriBuilder;
+
         /// <summary>
         /// Uses client side validation if set true.
         /// <para>
@@ -115,10 +118,9 @@ namespace AzureTableDataStore
             string blobStorageConnectionString = null, string storeName = null, string partitionKeyProperty = null, string rowKeyProperty = null)
         {
             Name = storeName ?? "default";
-
-
             _cloudStorageAccount = CloudStorageAccount.Parse(tableStorageConnectionString);
             _blobServiceClient = new BlobServiceClient(blobStorageConnectionString ?? tableStorageConnectionString);
+            _blobUriBuilder = new BlobUriBuilder(blobStorageConnectionString ?? tableStorageConnectionString);
             _configuration = new Configuration()
             {
                 BlobContainerAccessType = blobContainerAccessType,
@@ -139,6 +141,7 @@ namespace AzureTableDataStore
             Name = storeName ?? "default";
             _cloudStorageAccount = new CloudStorageAccount(tableStorageCredentials, tableStorageUri);
             _blobServiceClient = new BlobServiceClient(blobStorageServiceUri, blobStorageCredentials);
+            _blobUriBuilder = new BlobUriBuilder(blobStorageCredentials, blobStorageServiceUri);
             _configuration = new Configuration()
             {
                 BlobContainerAccessType = blobContainerAccessType,
@@ -439,6 +442,8 @@ namespace AzureTableDataStore
                 var props = await blobClient.GetPropertiesAsync();
                 blobPropRef.StoredInstance.Length = props.Value.ContentLength;
                 blobPropRef.StoredInstance.ContentType = props.Value.ContentType;
+                blobPropRef.StoredInstance.BlobClient = blobClient;
+                blobPropRef.StoredInstance.BlobUriBuilder = _blobUriBuilder;
 
                 // Delete the old blob(s). These will exist if the blob's filename changed, so we need to remove them.
 
@@ -458,19 +463,11 @@ namespace AzureTableDataStore
             
         }
 
-        private async Task<Stream> GetBlobStreamFromAzureBlobStorage(TData entity, LargeBlob sourceLargeBlob, string rowKey, string partitionKey, string flattenedPropertyName, string filename)
+        private async Task<Stream> GetBlobStreamFromAzureBlobStorage(TData entity, LargeBlob sourceLargeBlob, string blobPath)
         {
-            string blobPath = "";
             try
             {
                 var containerClient = GetContainerClient();
-                blobPath = string.Join("/",
-                    _configuration.StorageTableName,
-                    partitionKey,
-                    rowKey,
-                    flattenedPropertyName,
-                    filename);
-
                 var blobClient = containerClient.GetBlobClient(blobPath);
 
                 var downloadRequestResult = await blobClient.DownloadAsync();
@@ -1748,6 +1745,18 @@ namespace AzureTableDataStore
             return (propertyDictionary, blobPropertyRefs, collectionPropertyRefs);
         }
 
+        public async Task<IList<TData>> ListAsync(Expression<Func<TData, object>> selectExpression = null, int? limit = null)
+        {
+            var result = await FindWithMetadataAsyncInternal(null, selectExpression, limit);
+            return result.Select(x => x.Value).ToList();
+        }
+
+        public async Task<IList<DataStoreEntity<TData>>> ListWithMetadataAsync(
+            Expression<Func<TData, object>> selectExpression = null, int? limit = null)
+        {
+            var result = await FindWithMetadataAsyncInternal(null, selectExpression, limit);
+            return result;
+        }
 
         public async Task<TData> GetAsync(Expression<Func<TData, bool>> queryExpression, Expression<Func<TData, object>> selectExpression = null)
         {
@@ -1772,11 +1781,12 @@ namespace AzureTableDataStore
         {
             try
             {
-                string filterString;
+                string filterString = null;
                 try
                 {
-                    filterString = AzureStorageQueryTranslator.TranslateExpression(queryExpression,
-                        _configuration.PartitionKeyProperty, _configuration.RowKeyProperty, EntityPropertyConverterOptions);
+                    if(queryExpression != null)
+                        filterString = AzureStorageQueryTranslator.TranslateExpression(queryExpression,
+                            _configuration.PartitionKeyProperty, _configuration.RowKeyProperty, EntityPropertyConverterOptions);
                 }
                 catch (Exception e)
                 {
@@ -2126,7 +2136,10 @@ namespace AzureTableDataStore
                 if (deserializedValue != null)
                 {
                     var filename = deserializedValue.Filename; 
-                    deserializedValue.AsyncDataStream = new Lazy<Task<Stream>>(() => GetBlobStreamFromAzureBlobStorage(converted, deserializedValue, rowKey, partitionKey, flattenedPropName, filename));
+                    var blobPath = BuildBlobPath(_configuration.StorageTableName, partitionKey, rowKey, flattenedPropName, filename);
+                    deserializedValue.AsyncDataStream = new Lazy<Task<Stream>>(() => GetBlobStreamFromAzureBlobStorage(converted, deserializedValue, blobPath));
+                    deserializedValue.BlobClient = _blobServiceClient.GetBlobContainerClient(_configuration.BlobContainerName).GetBlobClient(blobPath);
+                    deserializedValue.BlobUriBuilder = _blobUriBuilder;
                 }
             }
 

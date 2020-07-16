@@ -208,6 +208,25 @@ namespace AzureTableDataStore
             params DataStoreEntity<TData>[] entities);
 
         /// <summary>
+        /// Lists entities without using any query. <br/>
+        /// The entities will be fetched in the default order (Queries that return multiple entities return them sorted in PartitionKey and RowKey order.)
+        /// <para>
+        /// NOTE: If no limit is imposed, all entries will be fetched.
+        /// </para>
+        /// </summary>
+        Task<IList<TData>> ListAsync(Expression<Func<TData, object>> selectExpression = null, int? limit = null);
+
+        /// <summary>
+        /// Lists entities without using any query wrapped into
+        /// <see cref="DataStoreEntity{TData}"/> instances that also contain the row's ETag and Timestamp.<br/>
+        /// The entities will be fetched in the default order (Queries that return multiple entities return them sorted in PartitionKey and RowKey order.)
+        /// <para>
+        /// NOTE: If no limit is imposed, all entries will be fetched.
+        /// </para>
+        /// </summary>
+        Task<IList<DataStoreEntity<TData>>> ListWithMetadataAsync(Expression<Func<TData, object>> selectExpression = null, int? limit = null);
+
+        /// <summary>
         /// Finds entities using the provided query expression, and returns a list of the <typeparamref name="TData"/> typed entities.
         /// </summary>
         /// <param name="queryExpression">
@@ -395,6 +414,7 @@ namespace AzureTableDataStore
         /// </para>
         /// </summary>
         /// <returns></returns>
+        /// <exception cref="AzureTableDataStoreInternalException"></exception>
         Task DeleteTableAndBlobContainerAsync();
 
         /// <summary>
@@ -408,6 +428,11 @@ namespace AzureTableDataStore
         /// </param>
         /// <param name="entities">The entities to delete.</param>
         /// <returns></returns>
+        /// <exception cref="AzureTableDataStoreSingleOperationException{TData}"></exception>
+        /// <exception cref="AzureTableDataStoreBatchedOperationException{TData}"></exception>
+        /// <exception cref="AzureTableDataStoreMultiOperationException{TData}"></exception>
+        /// <exception cref="AzureTableDataStoreEntityValidationException{TData}"></exception>
+        /// <exception cref="AzureTableDataStoreInternalException"></exception>
         Task DeleteAsync(BatchingMode batchingMode, params TData[] entities);
 
         /// <summary>
@@ -421,6 +446,11 @@ namespace AzureTableDataStore
         /// </param>
         /// <param name="entityIds">The entity partition key + row key pairs to delete.</param>
         /// <returns></returns>
+        /// <exception cref="AzureTableDataStoreSingleOperationException{TData}"></exception>
+        /// <exception cref="AzureTableDataStoreBatchedOperationException{TData}"></exception>
+        /// <exception cref="AzureTableDataStoreMultiOperationException{TData}"></exception>
+        /// <exception cref="AzureTableDataStoreEntityValidationException{TData}"></exception>
+        /// <exception cref="AzureTableDataStoreInternalException"></exception>
         Task DeleteAsync(BatchingMode batchingMode, params (string partitionKey, string rowKey)[] entityIds);
 
         /// <summary>
@@ -437,6 +467,11 @@ namespace AzureTableDataStore
         /// </param>
         /// <param name="queryExpression">The query expression used to find entities to delete</param>
         /// <returns></returns>
+        /// <exception cref="AzureTableDataStoreSingleOperationException{TData}"></exception>
+        /// <exception cref="AzureTableDataStoreBatchedOperationException{TData}"></exception>
+        /// <exception cref="AzureTableDataStoreMultiOperationException{TData}"></exception>
+        /// <exception cref="AzureTableDataStoreEntityValidationException{TData}"></exception>
+        /// <exception cref="AzureTableDataStoreInternalException"></exception>
         Task DeleteAsync(BatchingMode batchingMode, Expression<Func<TData, bool>> queryExpression);
 
         /// <summary>
@@ -446,6 +481,7 @@ namespace AzureTableDataStore
         /// entities in the table is large, this can take a lot of time.
         /// </summary>
         /// <returns></returns>
+        /// <exception cref="AzureTableDataStoreInternalException"></exception>
         Task<long> CountRowsAsync();
 
         /// <summary>
@@ -455,6 +491,7 @@ namespace AzureTableDataStore
         /// entities in the table is large, this can take a lot of time.
         /// </summary>
         /// <returns></returns>
+        /// <exception cref="AzureTableDataStoreInternalException"></exception>
         Task<long> CountRowsAsync(Expression<Func<TData, bool>> queryExpression);
 
         /// <summary>
@@ -471,6 +508,8 @@ namespace AzureTableDataStore
         /// <param name="enumeratorFunc">The enumerator function. Receives the page of entities and the next continuation token as input.</param>
         /// <param name="continuationToken">The continuation token to use when starting an enumeration. This can be used to later continue the enumeration.</param>
         /// <returns></returns>
+        /// <exception cref="AzureTableDataStoreQueryException"></exception>
+        /// <exception cref="AzureTableDataStoreInternalException"></exception>
         Task EnumerateWithMetadataAsync(Expression<Func<TData, bool>> queryExpression, int entitiesPerPage, EnumeratorFunc<DataStoreEntity<TData>> enumeratorFunc, TableContinuationToken continuationToken = null);
 
         /// <summary>
@@ -488,6 +527,8 @@ namespace AzureTableDataStore
         /// <param name="enumeratorFunc">The enumerator function. Receives the page of entities and the next continuation token as input.</param>
         /// <param name="continuationToken">The continuation token to use when starting an enumeration. This can be used to later continue the enumeration.</param>
         /// <returns></returns>
+        /// <exception cref="AzureTableDataStoreQueryException"></exception>
+        /// <exception cref="AzureTableDataStoreInternalException"></exception>
         Task EnumerateWithMetadataAsync(Expression<Func<TData, DateTimeOffset, bool>> queryExpression, int entitiesPerPage, EnumeratorFunc<DataStoreEntity<TData>> enumeratorFunc, TableContinuationToken continuationToken = null);
     }
 }

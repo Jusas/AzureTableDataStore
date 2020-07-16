@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Net.Http;
 using System.Text;
 using System.Threading.Tasks;
 using Azure.Storage.Blobs.Models;
@@ -362,6 +363,77 @@ namespace AzureTableDataStore.Tests.IntegrationTests
 
             _fixture.AssertTableEntityDoesNotExist("t09", newItem.CategoryId, newItem.ProductId);
             _fixture.AssertBlobDoesNotExist("t09", blobPath);
+
+        }
+
+        [Fact(/*Skip = "reason"*/)]
+        public async Task T10_Insert_One_WithBlob_ThenGetBlobUrlWithSas()
+        {
+            // Arrange
+
+            var testContext = "t10";
+
+            var newItem = MockData.TelescopeMockDataGenerator.CreateDataSet(1).First();
+            newItem.ProductId = "forgettinguri";
+
+            // Act
+
+            var store = _fixture.GetNewTableDataStore<TelescopePackageProduct>(testContext, isPublic: false);
+            await store.InsertAsync(BatchingMode.None, newItem);
+
+            var blobPath = store.BuildBlobPath(_fixture.TableAndContainerNames[testContext],
+                newItem.CategoryId, newItem.ProductId, "MainImage", newItem.MainImage.Filename);
+
+            _fixture.AssertTableEntityExists(testContext, newItem.CategoryId, newItem.ProductId);
+            _fixture.AssertBlobExists(testContext, blobPath);
+
+            var url = newItem.MainImage.GetDownloadUrl(true, TimeSpan.FromMinutes(10));
+            var urlPublic = newItem.MainImage.GetDownloadUrl();
+
+            // Should not throw.
+
+            using (var httpClient = new HttpClient())
+            {
+                var httpResponse = await httpClient.GetAsync(url);
+                httpResponse.IsSuccessStatusCode.Should().Be(true);
+                var bytes = await httpResponse.Content.ReadAsByteArrayAsync();
+                bytes.Length.Should().Be((int) newItem.MainImage.Length);
+            }
+            
+        }
+
+        [Fact(/*Skip = "reason"*/)]
+        public async Task T11_Insert_One_WithBlob_ThenGetBlobUrlNoSas()
+        {
+            // Arrange
+
+            var testContext = "t11";
+
+            var newItem = MockData.TelescopeMockDataGenerator.CreateDataSet(1).First();
+            newItem.ProductId = "forgettinguri";
+
+            // Act
+
+            var store = _fixture.GetNewTableDataStore<TelescopePackageProduct>(testContext, isPublic: true);
+            await store.InsertAsync(BatchingMode.None, newItem);
+
+            var blobPath = store.BuildBlobPath(_fixture.TableAndContainerNames[testContext],
+                newItem.CategoryId, newItem.ProductId, "MainImage", newItem.MainImage.Filename);
+
+            _fixture.AssertTableEntityExists(testContext, newItem.CategoryId, newItem.ProductId);
+            _fixture.AssertBlobExists(testContext, blobPath);
+
+            var url = newItem.MainImage.GetDownloadUrl();
+
+            // Should not throw.
+
+            using (var httpClient = new HttpClient())
+            {
+                var httpResponse = await httpClient.GetAsync(url);
+                httpResponse.IsSuccessStatusCode.Should().Be(true);
+                var bytes = await httpResponse.Content.ReadAsByteArrayAsync();
+                bytes.Length.Should().Be((int)newItem.MainImage.Length);
+            }
 
         }
 

@@ -40,14 +40,14 @@ namespace AzureTableDataStore.Tests.IntegrationTests
             return name;
         }
 
-        public TableDataStore<T> GetNewTableDataStore<T>(string testContext, bool createIfNotExists = true) where T : new()
+        public TableDataStore<T> GetNewTableDataStore<T>(string testContext, bool createIfNotExists = true, bool isPublic = false) where T : new()
         {
             var tableAndContainerName = TableAndContainerNames.ContainsKey(testContext)
                 ? TableAndContainerNames[testContext]
                 : CreateTestTableAndContainerNames(testContext);
 
             return new TableDataStore<T>(ConnectionString, tableAndContainerName, createIfNotExists, tableAndContainerName,
-                createIfNotExists, PublicAccessType.None);
+                createIfNotExists, isPublic ? PublicAccessType.Blob : PublicAccessType.None);
         }
 
         public void DeleteTables()

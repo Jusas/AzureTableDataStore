@@ -7,6 +7,9 @@ using Microsoft.Azure.Cosmos.Table;
 
 namespace AzureTableDataStore
 {
+    /// <summary>
+    /// Utilities for gathering collections and LargeBlob properties from class instances and types.
+    /// </summary>
     internal class ReflectionUtils
     {
 

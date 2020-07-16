@@ -780,6 +780,35 @@ namespace AzureTableDataStore.Tests.IntegrationTests
             rowCount.Should().Be(1110L);
         }
 
+        [Fact(/*Skip = "reason"*/)]
+        public async Task T21_InsertBatches_StrongMode_ThenList()
+        {
+            var itemsToAdd = Enumerable.Range(0, 10).ToList().Select(x => new VerySimpleObject()
+            {
+                Id = "item" + x,
+                Partition = "list1",
+                Value = x
+            });
+            var itemsToAdd2 = Enumerable.Range(0, 10).ToList().Select(x => new VerySimpleObject()
+            {
+                Id = "item" + x,
+                Partition = "list2",
+                Value = x
+            });
+
+            var store = _fixture.GetNewTableDataStore<VerySimpleObject>("listing");
+
+            await store.InsertAsync(BatchingMode.Strong, itemsToAdd.Concat(itemsToAdd2).ToArray());
+
+            var itemList = await store.ListWithMetadataAsync();
+            itemList.Count.Should().Be(20);
+
+            var itemList2 = await store.ListAsync(null, 5);
+            itemList2.Count.Should().Be(5);
+
+        }
+
+
         //[Fact(/*Skip = "reason"*/)]
         //public async Task T16_InsertOrReplaceBatches_WithStrongMode_ValidationShouldThrow()
         //{

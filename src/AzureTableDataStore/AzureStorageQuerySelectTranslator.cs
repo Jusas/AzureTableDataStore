@@ -5,6 +5,10 @@ using Microsoft.Azure.Cosmos.Table;
 
 namespace AzureTableDataStore
 {
+    /// <summary>
+    /// Converts the <c>entity => new { entity.Prop1, entity.Prop2 ... }</c> expressions into a list of
+    /// string that contain the property names.
+    /// </summary>
     public class AzureStorageQuerySelectTranslator : ExpressionVisitor
     {
 
