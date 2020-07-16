@@ -2,6 +2,8 @@
 using System.Collections.Generic;
 using System.Linq.Expressions;
 using System.Threading.Tasks;
+using Microsoft.Azure.Cosmos.Table;
+
 // ReSharper disable UnusedMember.Global
 
 
@@ -76,11 +78,22 @@ namespace AzureTableDataStore
     }
 
     /// <summary>
+    /// Entity enumerator function.
+    /// </summary>
+    /// <typeparam name="T">The type of the entity.</typeparam>
+    /// <param name="entities">The entities in this page of results.</param>
+    /// <param name="continuationToken">The continuation token that will lead to the next page of results.</param>
+    /// <returns>A Task that should return true to continue the enumeration, or false to stop the enumeration.</returns>
+    public delegate Task<bool> EnumeratorFunc<T>(List<T> entities, TableContinuationToken continuationToken) where T:new();
+
+    /// <summary>
     /// Interface for the <see cref="TableDataStore{TData}"/>.
     /// </summary>
     /// <typeparam name="TData">The entity type that is stored in the Azure Storage Table.</typeparam>
     public interface ITableDataStore<TData> : INamedTableDataStore where TData:new()
     {
+
+        
         /// <summary>
         /// Inserts new entities into Table Storage.
         /// </summary>
@@ -426,9 +439,55 @@ namespace AzureTableDataStore
         /// <returns></returns>
         Task DeleteAsync(BatchingMode batchingMode, Expression<Func<TData, bool>> queryExpression);
 
+        /// <summary>
+        /// Counts the rows in the table. <br/>
+        /// Since Azure Table Storage does not implement any count method, this method must list
+        /// all entities, 1000 at a time, and count the total number or results. If the number of
+        /// entities in the table is large, this can take a lot of time.
+        /// </summary>
+        /// <returns></returns>
+        Task<long> CountRowsAsync();
 
+        /// <summary>
+        /// Counts the rows in the table that match the query. <br/>
+        /// Since Azure Table Storage does not implement any count method, this method must list
+        /// all entities, 1000 at a time, and count the total number or results. If the number of
+        /// entities in the table is large, this can take a lot of time.
+        /// </summary>
+        /// <returns></returns>
+        Task<long> CountRowsAsync(Expression<Func<TData, bool>> queryExpression);
 
-        //Task EnumerateAsync(Func<TData, Task> enumeratorFunc);
-        //Task EnumerateAsync(Expression<Func<TData, bool>> queryExpression, Func<TData, Task> enumeratorFunc);
+        /// <summary>
+        /// Find and enumerate entities page by page using an enumerating function. <br/>
+        /// The enumeration will continue until the function returns false or throws an exception.
+        /// </summary>
+        /// <param name="queryExpression">
+        /// The query to use in expression form. The operators ==, !=, &gt;, &gt;=, &lt;, &lt;= and ! are supported, as well as the binary &amp;&amp; and || and parenthesis.
+        /// <para>
+        /// Example: <c>entity => entity.Category == "Worker" &amp;&amp; entity.Money &gt; 9000</c>
+        /// </para>
+        /// </param>
+        /// <param name="entitiesPerPage">How many entities to retrieve per page. 1-1000</param>
+        /// <param name="enumeratorFunc">The enumerator function. Receives the page of entities and the next continuation token as input.</param>
+        /// <param name="continuationToken">The continuation token to use when starting an enumeration. This can be used to later continue the enumeration.</param>
+        /// <returns></returns>
+        Task EnumerateWithMetadataAsync(Expression<Func<TData, bool>> queryExpression, int entitiesPerPage, EnumeratorFunc<DataStoreEntity<TData>> enumeratorFunc, TableContinuationToken continuationToken = null);
+
+        /// <summary>
+        /// Find and enumerate entities page by page using an enumerating function. <br/>
+        /// The enumeration will continue until the function returns false or throws an exception.
+        /// </summary>
+        /// <param name="queryExpression">
+        /// The query to use in expression form. The operators ==, !=, &gt;, &gt;=, &lt;, &lt;= and ! are supported.
+        /// The additional DateTimeOffset parameter represents the row Timestamp in the table.
+        /// <para>
+        /// Example: <c>(entity, timestamp) => entity.UserId == "007" &amp;&amp; timestamp &gt; yesterdayUtc</c>
+        /// </para>
+        /// </param>
+        /// <param name="entitiesPerPage">How many entities to retrieve per page. 1-1000</param>
+        /// <param name="enumeratorFunc">The enumerator function. Receives the page of entities and the next continuation token as input.</param>
+        /// <param name="continuationToken">The continuation token to use when starting an enumeration. This can be used to later continue the enumeration.</param>
+        /// <returns></returns>
+        Task EnumerateWithMetadataAsync(Expression<Func<TData, DateTimeOffset, bool>> queryExpression, int entitiesPerPage, EnumeratorFunc<DataStoreEntity<TData>> enumeratorFunc, TableContinuationToken continuationToken = null);
     }
 }

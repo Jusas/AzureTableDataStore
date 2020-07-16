@@ -1711,7 +1711,7 @@ namespace AzureTableDataStore
             // return await GetAsyncInternal(queryExpression);
         }
 
-        private async Task<List<DataStoreEntity<TData>>> FindWithMetadataAsyncInternal(Expression queryExpression, Expression<Func<TData, object>> selectExpression = null, int? takeCount = null)
+        private async Task<List<DataStoreEntity<TData>>> FindWithMetadataAsyncInternal(Expression queryExpression, Expression<Func<TData, object>> selectExpression = null, int? limitCount = null)
         {
             try
             {
@@ -1750,7 +1750,7 @@ namespace AzureTableDataStore
                 }
 
                 var tableRef = GetTable();
-                var query = new TableQuery { FilterString = filterString, TakeCount = takeCount };
+                var query = new TableQuery { FilterString = filterString, TakeCount = limitCount != null && limitCount <= 1000 ? limitCount : 1000 };
                 if (selectedProperties != null)
                     query.SelectColumns = selectedProperties;
 
@@ -1764,9 +1764,11 @@ namespace AzureTableDataStore
                         var results = await tableRef.ExecuteQuerySegmentedAsync(query, TransformQueryResult, token);
                         token = results.ContinuationToken;
                         foundEntities.AddRange(results.Results);
+                        if (limitCount != null && foundEntities.Count >= limitCount)
+                            break;
                     } while (token != null);
 
-                    return foundEntities;
+                    return limitCount != null ? foundEntities.Take(limitCount.Value).ToList() : foundEntities;
 
                 }
                 catch (Exception e)
@@ -1820,8 +1822,195 @@ namespace AzureTableDataStore
 
         public async Task DeleteTableAndBlobContainerAsync()
         {
-            await GetTable().DeleteIfExistsAsync();
-            await GetContainerClient().DeleteIfExistsAsync();
+            var exceptions = new List<Exception>();
+            try
+            {
+                await GetTable().DeleteIfExistsAsync();
+            }
+            catch (Exception e)
+            {
+                exceptions.Add(new AzureTableDataStoreInternalException("Failed to delete table: " + e.Message, e));
+            }
+
+            try
+            {
+                await GetContainerClient().DeleteIfExistsAsync();
+            }
+            catch (Exception e)
+            {
+                exceptions.Add(new AzureTableDataStoreInternalException("Failed to delete blob container: " + e.Message, e));
+            }
+
+            if(exceptions.Any())
+                throw new AzureTableDataStoreInternalException("Failed to delete table and/or blob container", 
+                    exceptions.Count == 1 ? exceptions.First() : new AggregateException(exceptions));
+        }
+
+        public async Task<long> CountRowsAsync(Expression<Func<TData, bool>> queryExpression)
+        {
+            try
+            {
+                long resultCount = 0;
+                string filterString;
+                try
+                {
+                    filterString = AzureStorageQueryTranslator.TranslateExpression(queryExpression,
+                        _configuration.PartitionKeyProperty, _configuration.RowKeyProperty,
+                        EntityPropertyConverterOptions);
+                }
+                catch (Exception e)
+                {
+                    throw new AzureTableDataStoreInternalException(
+                        "Failed to translate query expression into a query: " + e.Message, e);
+                }
+
+
+                var tableRef = GetTable();
+                var query = new TableQuery()
+                {
+                    FilterString = filterString,
+                    SelectColumns = new List<string>()
+                    {
+                        "PartitionKey",
+                        "RowKey"
+                    }
+                };
+
+
+                TableContinuationToken continuationToken = null;
+                do
+                {
+                    var segment = await tableRef.ExecuteQuerySegmentedAsync(query, continuationToken);
+                    resultCount += segment.Results.Count;
+                    continuationToken = segment.ContinuationToken;
+                } while (continuationToken != null);
+
+                return resultCount;
+
+            }
+            catch (AzureTableDataStoreInternalException)
+            {
+                throw;
+            }
+            catch (Exception e)
+            {
+                throw new AzureTableDataStoreInternalException("Row count attempt threw an exception: " + e.Message, e);
+            }
+        }
+
+        public async Task<long> CountRowsAsync()
+        {
+            long resultCount = 0;
+            try
+            {
+                var tableRef = GetTable();
+                var tableQuery = new TableQuery()
+                {
+                    SelectColumns = new List<string>()
+                    {
+                        "PartitionKey",
+                        "RowKey"
+                    },
+                    TakeCount = 1000
+                };
+
+                TableContinuationToken continuationToken = null;
+                do
+                {
+                    var segment = await tableRef.ExecuteQuerySegmentedAsync(tableQuery, continuationToken);
+                    resultCount += segment.Results.Count;
+                    continuationToken = segment.ContinuationToken;
+                } while (continuationToken != null);
+
+                return resultCount;
+            }
+            catch (Exception e)
+            {
+                throw new AzureTableDataStoreInternalException("Row count attempt threw an exception: " + e.Message, e);
+            }
+        }
+
+        public async Task EnumerateWithMetadataAsync(Expression<Func<TData, bool>> queryExpression, int entitiesPerPage,
+            EnumeratorFunc<DataStoreEntity<TData>> enumeratorFunc, TableContinuationToken continuationToken = null)
+        {
+            await EnumerateWithMetadataInternalAsync(queryExpression, entitiesPerPage, enumeratorFunc,
+                continuationToken);
+        }
+
+        public async Task EnumerateWithMetadataAsync(Expression<Func<TData, DateTimeOffset, bool>> queryExpression,
+            int entitiesPerPage, EnumeratorFunc<DataStoreEntity<TData>> enumeratorFunc,
+            TableContinuationToken continuationToken = null)
+        {
+            await EnumerateWithMetadataInternalAsync(queryExpression, entitiesPerPage, enumeratorFunc,
+                continuationToken);
+        }
+
+        private async Task EnumerateWithMetadataInternalAsync(Expression queryExpression, int entitiesPerPage,
+            EnumeratorFunc<DataStoreEntity<TData>> enumeratorFunc, TableContinuationToken continuationToken = null)
+        {
+
+            if (entitiesPerPage < 1 || entitiesPerPage > 1000)
+                throw new AzureTableDataStoreInternalException($"Parameter {nameof(entitiesPerPage)} must have value between 1 and 1000");
+
+            if (enumeratorFunc == null)
+                throw new AzureTableDataStoreInternalException($"Parameter {nameof(enumeratorFunc)} cannot be null");
+
+            try
+            {
+                string filterString;
+                try
+                {
+                    filterString = AzureStorageQueryTranslator.TranslateExpression(queryExpression,
+                        _configuration.PartitionKeyProperty, _configuration.RowKeyProperty, EntityPropertyConverterOptions);
+                }
+                catch (Exception e)
+                {
+                    throw new AzureTableDataStoreInternalException(
+                        "Failed to translate query expression into a query: " + e.Message, e);
+                }
+
+                var tableRef = GetTable();
+                var query = new TableQuery { FilterString = filterString, TakeCount = entitiesPerPage };
+
+
+                try
+                {
+                    TableContinuationToken token = continuationToken;
+
+                    do
+                    {
+                        var results = await tableRef.ExecuteQuerySegmentedAsync(query, TransformQueryResult, token);
+                        token = results.ContinuationToken;
+                        bool continueEnumeration = false;
+                        try
+                        {
+                            continueEnumeration = await enumeratorFunc(results.Results, token);
+                        }
+                        catch (Exception e)
+                        {
+                            throw new AzureTableDataStoreInternalException(
+                                "Enumerator function threw an exception: " + e.Message, e);
+                        }
+
+                        if (!continueEnumeration)
+                            break;
+                    } while (token != null);
+
+                }
+                catch (AzureTableDataStoreInternalException)
+                {
+                    throw;
+                }
+                catch (Exception e)
+                {
+                    throw new AzureTableDataStoreQueryException($"Failed to retrieve entities with query '{queryExpression}': " + e.Message, e);
+                }
+            }
+            catch (Exception e)
+            {
+                throw new AzureTableDataStoreQueryException(
+                    $"Failed to enumerate entities with query '{queryExpression}': " + e.Message, e);
+            }
         }
 
 
