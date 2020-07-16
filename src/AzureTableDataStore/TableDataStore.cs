@@ -30,6 +30,8 @@ namespace AzureTableDataStore
             public string StorageTableName { get; set; }
             public string PartitionKeyProperty { get; set; }
             public string RowKeyProperty { get; set; }
+            public bool AllowContainerCreation { get; set; }
+            public bool AllowTableCreation { get; set; }
         }
 
         internal class EntityKeyPair
@@ -109,7 +111,7 @@ namespace AzureTableDataStore
         public int ParallelBlobBatchOperationLimit { get; set; } = 8;
 
 
-        public TableDataStore(string tableStorageConnectionString, string tableName, string blobContainerName, PublicAccessType blobContainerAccessType,
+        public TableDataStore(string tableStorageConnectionString, string tableName, bool createTableIfNotExist, string blobContainerName, bool createContainerIfNotExist, PublicAccessType blobContainerAccessType,
             string blobStorageConnectionString = null, string storeName = null, string partitionKeyProperty = null, string rowKeyProperty = null)
         {
             Name = storeName ?? "default";
@@ -123,13 +125,15 @@ namespace AzureTableDataStore
                 BlobContainerName = blobContainerName,
                 StorageTableName = tableName,
                 PartitionKeyProperty = ResolvePartitionKeyProperty(partitionKeyProperty),
-                RowKeyProperty = ResolveRowKeyProperty(rowKeyProperty)
+                RowKeyProperty = ResolveRowKeyProperty(rowKeyProperty),
+                AllowContainerCreation = createContainerIfNotExist,
+                AllowTableCreation = createTableIfNotExist
             };
             PostConfigure();
         }
 
-        public TableDataStore(StorageCredentials tableStorageCredentials, StorageUri tableStorageUri, string tableName,
-            StorageSharedKeyCredential blobStorageCredentials, Uri blobStorageServiceUri, string blobContainerName, PublicAccessType blobContainerAccessType,
+        public TableDataStore(StorageCredentials tableStorageCredentials, StorageUri tableStorageUri, string tableName, bool createTableIfNotExist,
+            StorageSharedKeyCredential blobStorageCredentials, Uri blobStorageServiceUri, string blobContainerName, bool createContainerIfNotExist, PublicAccessType blobContainerAccessType,
             string storeName = null, string partitionKeyProperty = null, string rowKeyProperty = null)
         {
             Name = storeName ?? "default";
@@ -141,7 +145,9 @@ namespace AzureTableDataStore
                 BlobContainerName = blobContainerName,
                 StorageTableName = tableName,
                 PartitionKeyProperty = ResolvePartitionKeyProperty(partitionKeyProperty),
-                RowKeyProperty = ResolveRowKeyProperty(rowKeyProperty)
+                RowKeyProperty = ResolveRowKeyProperty(rowKeyProperty),
+                AllowContainerCreation = createContainerIfNotExist,
+                AllowTableCreation = createTableIfNotExist
             };
             PostConfigure();
         }
@@ -219,17 +225,44 @@ namespace AzureTableDataStore
             {
                 if (!_containerClientInitialized)
                 {
-                    try
+                    if (_configuration.AllowContainerCreation)
                     {
-                        _blobServiceClient
-                            .GetBlobContainerClient(_configuration.BlobContainerName)
-                            .CreateIfNotExists(_configuration.BlobContainerAccessType);
-                        _containerClientInitialized = true;
+                        try
+                        {
+                            _blobServiceClient
+                                .GetBlobContainerClient(_configuration.BlobContainerName)
+                                .CreateIfNotExists(_configuration.BlobContainerAccessType);
+                            _containerClientInitialized = true;
+                        }
+                        catch (Exception e)
+                        {
+                            throw new AzureTableDataStoreInternalException(
+                                "Unable to initialize blob container (CreateIfNotExists): " + e.Message,
+                                e);
+                        }
                     }
-                    catch (Exception e)
+                    else
                     {
-                        throw new AzureTableDataStoreInternalException("Unable to initialize blob container (CreateIfNotExists): " + e.Message,
-                            e);
+                        try
+                        {
+                            var exists = _blobServiceClient
+                                .GetBlobContainerClient(_configuration.BlobContainerName)
+                                .Exists();
+
+                            if (!exists)
+                                throw new AzureTableDataStoreInternalException(
+                                    $"Blob container '{_configuration.BlobContainerName}' does not exist");
+
+                            _containerClientInitialized = true;
+                        }
+                        catch (AzureTableDataStoreInternalException)
+                        {
+                            throw;
+                        }
+                        catch (Exception e)
+                        {
+                            throw new AzureTableDataStoreInternalException("Unable to initialize blob container: " + e.Message, e);
+                        }
                     }
                 }
             }
@@ -242,23 +275,47 @@ namespace AzureTableDataStore
         {
             lock (_syncLock)
             {
-                try
+                if (!_tableClientInitialized)
                 {
-                    if (!_tableClientInitialized)
+                    if (_configuration.AllowTableCreation)
                     {
-                        var cloudTableClient = _cloudStorageAccount.CreateCloudTableClient();
-                        var tableRef = cloudTableClient.GetTableReference(_configuration.StorageTableName);
-                        tableRef.CreateIfNotExists();
-                        _tableClientInitialized = true;
-                        return tableRef;
+                        try
+                        {
+                            var cloudTableClient = _cloudStorageAccount.CreateCloudTableClient();
+                            var tableRef = cloudTableClient.GetTableReference(_configuration.StorageTableName);
+                            tableRef.CreateIfNotExists();
+                            _tableClientInitialized = true;
+                            return tableRef;
+                        }
+                        catch (Exception e)
+                        {
+                            throw new AzureTableDataStoreInternalException("Unable to initialize table (CreateIfNotExists): " + e.Message,
+                                e);
+                        }
                     }
-                }
-                catch (Exception e)
-                {
-                    throw new AzureTableDataStoreInternalException("Unable to initialize table (CreateIfNotExists): " + e.Message,
-                        e);
-                }
+                    else
+                    {
+                        try
+                        {
+                            var cloudTableClient = _cloudStorageAccount.CreateCloudTableClient();
+                            var tableRef = cloudTableClient.GetTableReference(_configuration.StorageTableName);
+                            bool exists = tableRef.Exists();
+                            if(!exists)
+                                throw new AzureTableDataStoreInternalException(
+                                    $"Table '{_configuration.StorageTableName}' does not exist");
 
+                            _tableClientInitialized = true;
+                            return tableRef;
+                        }
+                        catch (Exception e)
+                        {
+                            throw new AzureTableDataStoreInternalException("Unable to initialize table (CreateIfNotExists): " + e.Message,
+                                e);
+                        }
+                    }
+                
+                }
+         
             }
 
             return _cloudStorageAccount.CreateCloudTableClient()

@@ -33,21 +33,21 @@ namespace AzureTableDataStore.Tests.IntegrationTests
                 GetEnvironmentVariable("TestAzureStorageConnectionString") ?? "UseDevelopmentStorage=true";
         }
 
-        public string CreateTestTableAndContainer(string testContext)
+        public string CreateTestTableAndContainerNames(string testContext)
         {
             var name = "test" + Guid.NewGuid().ToString().Substring(0, 8);
             TableAndContainerNames.Add(testContext, name);
             return name;
         }
 
-        public TableDataStore<T> GetNewTableDataStore<T>(string testContext) where T : new()
+        public TableDataStore<T> GetNewTableDataStore<T>(string testContext, bool createIfNotExists = true) where T : new()
         {
             var tableAndContainerName = TableAndContainerNames.ContainsKey(testContext)
                 ? TableAndContainerNames[testContext]
-                : CreateTestTableAndContainer(testContext);
+                : CreateTestTableAndContainerNames(testContext);
 
-            return new TableDataStore<T>(ConnectionString, tableAndContainerName, tableAndContainerName, 
-                PublicAccessType.None);
+            return new TableDataStore<T>(ConnectionString, tableAndContainerName, createIfNotExists, tableAndContainerName,
+                createIfNotExists, PublicAccessType.None);
         }
 
         public void DeleteTables()

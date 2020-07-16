@@ -245,14 +245,5 @@ namespace AzureTableDataStore
             return 0;
         }
 
-        internal static long CalculateBase64EncodedSize(byte[] input)
-        {
-            return (long)Math.Ceiling(input.Length  / 3.0M)*4;
-        }
-
-        internal static long CalculateBase64EncodedSize(Stream input)
-        {
-            return (long)Math.Ceiling(input.Length / 3.0M) * 4;
-        }
     }
 }

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Threading.Tasks;
 using Azure.Storage.Blobs.Models;
 using AzureTableDataStore.Tests.Infrastructure;
@@ -22,27 +23,146 @@ namespace AzureTableDataStore.Tests.IntegrationTests
         }
 
         [Fact(/*Skip = "reason"*/)]
-        public async Task T01_Insert_One_WithLargeBlob()
+        public async Task T01a_Insert_One_WithLargeBlob_ctor1()
         {
             // Arrange
+
+            var testContext = "largeblobtests";
+
+            var newItem = MockData.TelescopeMockDataGenerator.CreateDataSet(1, "blobctor1").First();
+            newItem.MainImage = new LargeBlob("largeblob.txt",
+                () => new MemoryStream(Encoding.UTF8.GetBytes("testing")), "text/plain");
+            
+            // Act
+
+            var store = _fixture.GetNewTableDataStore<TelescopePackageProduct>(testContext);
+            await store.InsertAsync(BatchingMode.None, newItem);
+
+            
+            _fixture.AssertTableEntityExists(testContext, newItem.CategoryId, newItem.ProductId);
+
+            var blobPath = store.BuildBlobPath(_fixture.TableAndContainerNames[testContext],
+                newItem.CategoryId, newItem.ProductId, "MainImage", newItem.MainImage.Filename);
+            _fixture.AssertBlobExists(testContext, blobPath);
+        }
+
+        [Fact(/*Skip = "reason"*/)]
+        public async Task T01b_Insert_One_WithLargeBlob_ctor2()
+        {
+            // Arrange
+
+            var testContext = "largeblobtests";
+
+            var newItem = MockData.TelescopeMockDataGenerator.CreateDataSet(1, "blobctor2").First();
+            newItem.MainImage = new LargeBlob("largeblob.txt", () => Task.FromResult((Stream)new MemoryStream(Encoding.UTF8.GetBytes("testing"))), "text/plain");
+
+            // Act
+
+            var store = _fixture.GetNewTableDataStore<TelescopePackageProduct>(testContext);
+            await store.InsertAsync(BatchingMode.None, newItem);
+
+
+            _fixture.AssertTableEntityExists(testContext, newItem.CategoryId, newItem.ProductId);
+
+            var blobPath = store.BuildBlobPath(_fixture.TableAndContainerNames[testContext],
+                newItem.CategoryId, newItem.ProductId, "MainImage", newItem.MainImage.Filename);
+            _fixture.AssertBlobExists(testContext, blobPath);
+        }
+
+        [Fact(/*Skip = "reason"*/)]
+        public async Task T01c_Insert_One_WithLargeBlob_ctor3()
+        {
+            // Arrange
+
+            var testContext = "largeblobtests";
+
+            var newItem = MockData.TelescopeMockDataGenerator.CreateDataSet(1, "blobctor3").First();
+            newItem.MainImage = new LargeBlob("largeblob.txt", new MemoryStream(Encoding.UTF8.GetBytes("testing")),
+                "text/plain");
+
+            // Act
+
+            var store = _fixture.GetNewTableDataStore<TelescopePackageProduct>(testContext);
+            await store.InsertAsync(BatchingMode.None, newItem);
+
+
+            _fixture.AssertTableEntityExists(testContext, newItem.CategoryId, newItem.ProductId);
+
+            var blobPath = store.BuildBlobPath(_fixture.TableAndContainerNames[testContext],
+                newItem.CategoryId, newItem.ProductId, "MainImage", newItem.MainImage.Filename);
+            _fixture.AssertBlobExists(testContext, blobPath);
+        }
+
+
+        [Fact(/*Skip = "reason"*/)]
+        public async Task T01d_Insert_One_WithLargeBlob_ctor4()
+        {
+            // Arrange
+
+            var testContext = "largeblobtests";
+
+            var newItem = MockData.TelescopeMockDataGenerator.CreateDataSet(1, "blobctor4").First();
+            newItem.MainImage = new LargeBlob("largeblob.txt", Encoding.UTF8.GetBytes("testing"), "text/plain");
+
+            // Act
+
+            var store = _fixture.GetNewTableDataStore<TelescopePackageProduct>(testContext);
+            await store.InsertAsync(BatchingMode.None, newItem);
+
+
+            _fixture.AssertTableEntityExists(testContext, newItem.CategoryId, newItem.ProductId);
+
+            var blobPath = store.BuildBlobPath(_fixture.TableAndContainerNames[testContext],
+                newItem.CategoryId, newItem.ProductId, "MainImage", newItem.MainImage.Filename);
+            _fixture.AssertBlobExists(testContext, blobPath);
+        }
+
+        [Fact(/*Skip = "reason"*/)]
+        public async Task T01e_Insert_One_WithLargeBlob_ctor5()
+        {
+            // Arrange
+
+            var testContext = "largeblobtests";
+
+            var newItem = MockData.TelescopeMockDataGenerator.CreateDataSet(1, "blobctor5").First();
+            newItem.MainImage = new LargeBlob("largeblob.txt", "testing", Encoding.Unicode, "text/plain");
+
+            // Act
+
+            var store = _fixture.GetNewTableDataStore<TelescopePackageProduct>(testContext);
+            await store.InsertAsync(BatchingMode.None, newItem);
+
+
+            _fixture.AssertTableEntityExists(testContext, newItem.CategoryId, newItem.ProductId);
+
+            var blobPath = store.BuildBlobPath(_fixture.TableAndContainerNames[testContext],
+                newItem.CategoryId, newItem.ProductId, "MainImage", newItem.MainImage.Filename);
+            _fixture.AssertBlobExists(testContext, blobPath);
+        }
+
+        [Fact(/*Skip = "reason"*/)]
+        public async Task T02a_Insert_One_WithLargeBlob()
+        {
+            // Arrange
+
+            var testContext = "base";
 
             var newItem = MockData.TelescopeMockDataGenerator.CreateDataSet(1).First();
 
             // Act
 
-            var store = _fixture.GetNewTableDataStore<TelescopePackageProduct>("base");
+            var store = _fixture.GetNewTableDataStore<TelescopePackageProduct>(testContext);
             await store.InsertAsync(BatchingMode.None, newItem);
 
-            
-            _fixture.AssertTableEntityExists("base", newItem.CategoryId, newItem.ProductId);
+            _fixture.AssertTableEntityExists(testContext, newItem.CategoryId, newItem.ProductId);
 
-            var blobPath = store.BuildBlobPath(_fixture.TableAndContainerNames["base"],
+            var blobPath = store.BuildBlobPath(_fixture.TableAndContainerNames[testContext],
                 newItem.CategoryId, newItem.ProductId, "MainImage", newItem.MainImage.Filename);
-            _fixture.AssertBlobExists("base", blobPath);
+            _fixture.AssertBlobExists(testContext, blobPath);
         }
 
         [Fact(/*Skip = "reason"*/)]
-        public async Task T02_Get_One_WithLargeBlob()
+        public async Task T02b_Get_One_WithLargeBlob()
         {
             // Arrange
 

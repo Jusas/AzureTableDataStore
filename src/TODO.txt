@@ -8,3 +8,5 @@
 	- setting values to null should remove the properties by default
 	- introduce null behavior: decide whether to remove the property or ignore null values in merge operations.
 	- requires a lot of work, basically will need to forget EntityPropertyConverter.Flatten and ConvertBack and implement it all by myself
+- test validations fully
+- LargeBlob.GetUrl

@@ -1,4 +1,5 @@
-﻿using System.Text;
+﻿using System;
+using System.Text;
 using System.Threading.Tasks;
 using Azure.Storage.Blobs.Models;
 using AzureTableDataStore.Tests.Models.SpecialCases;
@@ -45,6 +46,34 @@ namespace AzureTableDataStore.Tests.IntegrationTests
             retrieved.Blobs.BlobA.ContentType.Should().Be("text/plain");
             retrieved.Blobs.BlobB.ContentType.Should().Be("text/plain");
 
+
+        }
+
+        [Fact(/*Skip = "Due to table deletion being slow, do not run in normal test sets"*/)]
+        public async Task T02_DeleteTableAndContainer()
+        {
+            var store = _fixture.GetNewTableDataStore<EntityWithLargeBlobsOnly>("deltest");
+
+            await store.InsertAsync(BatchingMode.None, new EntityWithLargeBlobsOnly()
+            {
+                EntityKey = "key",
+                PartitionKey = "pkey",
+                Blobs = new EntityWithLargeBlobsOnly.BlobContainer()
+                {
+                    BlobA = new LargeBlob("file1.txt", "test", Encoding.UTF8, "text/plain"),
+                    BlobB = new LargeBlob("file2.txt", "test", Encoding.UTF8, "text/plain"),
+                }
+            });
+
+            // Note: this is not instantaneous. It appears that the table is still found immediately after invoking the delete call.
+            // This test is somewhat sketchy; we'll have to delay to give time for the table to really disappear.
+
+            await store.DeleteTableAndBlobContainerAsync();
+
+            await Task.Delay(32000);
+
+            // This should throw, the table is gone.
+            await Assert.ThrowsAnyAsync<Exception>(() => store.CountRowsAsync());
 
         }
 

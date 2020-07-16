@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -7,6 +8,7 @@ using Azure.Storage.Blobs.Models;
 using AzureTableDataStore.Tests.Infrastructure;
 using AzureTableDataStore.Tests.Models;
 using FluentAssertions;
+using Microsoft.Azure.Cosmos.Table;
 using Moq;
 using Xunit;
 
@@ -710,6 +712,72 @@ namespace AzureTableDataStore.Tests.IntegrationTests
             tasks = itemsToAdd.Select(item => _fixture.AssertTableEntityDoesNotExistAsync("simples", item.Partition, item.Id));
             await Task.WhenAll(tasks);
 
+        }
+
+        [Fact(/*Skip = "reason"*/)]
+        public async Task T19_InsertBatches_StrongMode_ThenEnumerateWithMultipleCalls()
+        {
+            var itemsToAdd = Enumerable.Range(0, 1600).ToList().Select(x => new VerySimpleObject()
+            {
+                Id = "item" + x,
+                Partition = "enumeration1",
+                Value = x
+            });
+
+            var store = _fixture.GetNewTableDataStore<VerySimpleObject>("simples");
+
+            await store.InsertAsync(BatchingMode.Strong, itemsToAdd.ToArray());
+
+            List<VerySimpleObject> entities = new List<VerySimpleObject>();
+            TableContinuationToken continuation = null;
+
+            await store.EnumerateWithMetadataAsync(x => x.Partition == "enumeration1", 500, async (ents, token) =>
+            {
+                entities.AddRange(ents.Select(x => x.Value));
+                continuation = token;
+                return false;
+            });
+
+            // Continue where we left off.
+
+            await store.EnumerateWithMetadataAsync(x => x.Partition == "enumeration1", 500, async (ents, token) =>
+            {
+                entities.AddRange(ents.Select(x => x.Value));
+                return true;
+            }, continuation);
+
+            entities.Count.Should().Be(1600);
+
+        }
+
+        [Fact(/*Skip = "reason"*/)]
+        public async Task T20_InsertBatches_StrongMode_ThenCount()
+        {
+            var itemsToAdd = Enumerable.Range(0, 1100).ToList().Select(x => new VerySimpleObject()
+            {
+                Id = "item" + x,
+                Partition = "count",
+                Value = x
+            });
+            var itemsToAdd2 = Enumerable.Range(0, 10).ToList().Select(x => new VerySimpleObject()
+            {
+                Id = "item" + x,
+                Partition = "other",
+                Value = x
+            });
+
+            var store = _fixture.GetNewTableDataStore<VerySimpleObject>("simplescount");
+
+            await store.InsertAsync(BatchingMode.Strong, itemsToAdd.Concat(itemsToAdd2).ToArray());
+
+
+            var rowCount = await store.CountRowsAsync(x => x.Partition == "count");
+
+            rowCount.Should().Be(1100L);
+
+            rowCount = await store.CountRowsAsync();
+
+            rowCount.Should().Be(1110L);
         }
 
         //[Fact(/*Skip = "reason"*/)]

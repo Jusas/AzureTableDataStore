@@ -34,10 +34,6 @@ namespace AzureTableDataStore
             _rowKeyProperty = rowKeyProperty;
         }
 
-        private bool IsNullConstant(Expression exp)
-        {
-            return (exp.NodeType == ExpressionType.Constant && ((ConstantExpression)exp).Value == null);
-        }
 
         public static string TranslateExpression(Expression e, string partitionKeyProperty, string rowKeyProperty, EntityPropertyConverterOptions options)
         {
@@ -46,11 +42,6 @@ namespace AzureTableDataStore
             translator.Visit(e);
 
             return translator.Filter.ToString();
-        }
-
-        protected override MemberMemberBinding VisitMemberMemberBinding(MemberMemberBinding node)
-        {
-            return base.VisitMemberMemberBinding(node);
         }
 
         protected override Expression VisitMethodCall(MethodCallExpression node)
@@ -78,10 +69,6 @@ namespace AzureTableDataStore
             return node;
         }
 
-        protected override Expression VisitNew(NewExpression node)
-        {
-            return base.VisitNew(node);
-        }
 
         protected override Expression VisitMember(MemberExpression m)
         {
