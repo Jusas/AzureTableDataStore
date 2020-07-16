@@ -10,3 +10,4 @@
 	- requires a lot of work, basically will need to forget EntityPropertyConverter.Flatten and ConvertBack and implement it all by myself
 - test validations fully
 - note: input streams should be seekable and support getting Length
+- add subscribable events to blob operations and table operations
