@@ -5,28 +5,27 @@ pool:
 
 variables:
   buildConfiguration: 'Release'
+  nuGetSourceServerUrl: 'https://api.nuget.org/v3/index.json'
+  # Set in the pipeline variables as a secret, because service connection with ApiKey just doesn't work.
+  nuGetSourceServerApiKey: $(NugetApiKey) 
 
 steps:
-  - task: DotNetCoreCLI@2
-    displayName: 'Build nuget package'
-    inputs:
-      command: 'pack'
-      packagesToPack: 'src/AzureTableDataStore/AzureTableDataStore.csproj'
-      includesymbols: true
-      includesource: true
-      versioningScheme: 'off'
-      outputDir: '$(Build.ArtifactStagingDirectory)/NugetPkg'
+  # Version numbering is just so unbelievably difficult.
+  - script: dotnet pack -o $(Build.ArtifactStagingDirectory) --configuration $(buildConfiguration) /p:IncludeSymbols=true /p:SymbolPackageFormat=snupkg src/AzureTableDataStore/AzureTableDataStore.csproj
 
   - task: PublishPipelineArtifact@1
     displayName: 'Publish as artifact'
     inputs:
-      targetPath: '$(Build.ArtifactStagingDirectory)/NugetPkg'
+      targetPath: '$(Build.ArtifactStagingDirectory)'
       artifactName: NugetPackage
 
+  # Because Nuget has some serious issues.
   - task: DotNetCoreCLI@2
-    displayName: 'Push to nuget.org'
+    displayName: 'Push to Nuget.org'
     inputs:
-      command: 'push'
-      packagesToPush: '$(Build.ArtifactStagingDirectory)/NugetPkg/*.nupkg'
-      nuGetFeedType: 'external'
-      publishFeedCredentials: 'Nuget.org'
+      command: custom
+      custom: nuget
+      arguments: >
+        push $(Build.ArtifactStagingDirectory)/*.nupkg
+        -s $(nuGetSourceServerUrl)
+        -k $(nuGetSourceServerApiKey)
