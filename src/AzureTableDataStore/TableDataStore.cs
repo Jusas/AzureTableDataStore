@@ -219,7 +219,7 @@ namespace AzureTableDataStore
             if (entities == null || entities.Length == 0)
                 return;
 
-            await InsertInternalAsync(entities, batchingMode, false);
+            await InsertInternalAsync(entities, batchingMode, false).ConfigureAwait(false);
         }
 
         private BlobContainerClient GetContainerClient()
@@ -375,7 +375,7 @@ namespace AzureTableDataStore
                 var existingBlobs =
                     containerClient.GetBlobsAsync(prefix: blobPath.Substring(0, blobPath.LastIndexOf('/')));
                 var enumerator = existingBlobs.GetAsyncEnumerator();
-                while (await enumerator.MoveNextAsync())
+                while (await enumerator.MoveNextAsync().ConfigureAwait(false))
                 {
                     var existingBlob = enumerator.Current;
                     existingBlobPaths.Add(existingBlob.Name);
@@ -383,7 +383,9 @@ namespace AzureTableDataStore
 
                 foreach (var existingBlob in existingBlobPaths)
                 {
-                    await containerClient.GetBlobClient(existingBlob).DeleteIfExistsAsync();
+                    await containerClient.GetBlobClient(existingBlob)
+                        .DeleteIfExistsAsync()
+                        .ConfigureAwait(false);
                 }
             }
             catch (Exception e)
@@ -410,7 +412,7 @@ namespace AzureTableDataStore
                     var oldBlobs =
                         containerClient.GetBlobsAsync(prefix: blobPath.Substring(0, blobPath.LastIndexOf('/')));
                     var enumerator = oldBlobs.GetAsyncEnumerator();
-                    while (await enumerator.MoveNextAsync())
+                    while (await enumerator.MoveNextAsync().ConfigureAwait(false))
                     {
                         var oldBlob = enumerator.Current;
                         oldBlobPaths.Add(oldBlob.Name);
@@ -425,21 +427,32 @@ namespace AzureTableDataStore
                 {
                     foreach (var oldBlob in oldBlobPaths)
                     {
-                        await containerClient.GetBlobClient(oldBlob).DeleteIfExistsAsync();
+                        await containerClient.GetBlobClient(oldBlob)
+                            .DeleteIfExistsAsync()
+                            .ConfigureAwait(false);
                     }
 
                     return;
                 }
 
 
-                var dataStream = await blobPropRef.StoredInstance.AsyncDataStream.Value;
-                await blobClient.UploadAsync(dataStream, new BlobHttpHeaders()
+                var dataStream = await blobPropRef.StoredInstance.AsyncDataStream.Value.ConfigureAwait(false);
+                var blobHeaders = new BlobHttpHeaders()
                 {
                     ContentType = blobPropRef.StoredInstance.ContentType
-                }, conditions: allowReplace ? null : new BlobRequestConditions {IfNoneMatch = new ETag("*")});
+                };
+
+                await blobClient.UploadAsync(dataStream, blobHeaders, 
+                    conditions: allowReplace ? null : new BlobRequestConditions {IfNoneMatch = new ETag("*")})
+                    .ConfigureAwait(false);
+                
                 // Should we compare the hashes just in case?
                 dataStream.Seek(0, SeekOrigin.Begin);
-                var props = await blobClient.GetPropertiesAsync();
+
+                var props = await blobClient
+                    .GetPropertiesAsync()
+                    .ConfigureAwait(false);
+
                 blobPropRef.StoredInstance.Length = props.Value.ContentLength;
                 blobPropRef.StoredInstance.ContentType = props.Value.ContentType;
                 blobPropRef.StoredInstance.BlobClient = blobClient;
@@ -452,7 +465,9 @@ namespace AzureTableDataStore
                     if (oldBlob == blobPath)
                         continue;
 
-                    await containerClient.GetBlobClient(oldBlob).DeleteIfExistsAsync();
+                    await containerClient.GetBlobClient(oldBlob)
+                        .DeleteIfExistsAsync()
+                        .ConfigureAwait(false);
                 }
             }
             catch (Exception e)
@@ -470,7 +485,8 @@ namespace AzureTableDataStore
                 var containerClient = GetContainerClient();
                 var blobClient = containerClient.GetBlobClient(blobPath);
 
-                var downloadRequestResult = await blobClient.DownloadAsync();
+                var downloadRequestResult = await blobClient.DownloadAsync()
+                    .ConfigureAwait(false);
                 return downloadRequestResult.Value.Content;
             }
             catch (Exception e)
@@ -533,7 +549,7 @@ namespace AzureTableDataStore
                             if (@ref.StoredInstance == null)
                                 continue;
 
-                            var stream = await @ref.StoredInstance.AsyncDataStream.Value;
+                            var stream = await @ref.StoredInstance.AsyncDataStream.Value.ConfigureAwait(false);
                             @ref.StoredInstance.Length = stream.Length;
                             entityData.PropertyDictionary.Add(@ref.FlattenedPropertyName,
                                 EntityProperty.GeneratePropertyForString(
@@ -707,7 +723,7 @@ namespace AzureTableDataStore
                             item => RunAsSingleOperation(allowReplace, allowReplace ? TableOperationType.InsertOrReplace : TableOperationType.Insert,
                                 LargeBlobNullBehavior.DeleteBlob, item, failedOps));
                         var parallelTaskRuns = Task.WhenAll(parallelOpsAsTasks);
-                        await parallelTaskRuns;
+                        await parallelTaskRuns.ConfigureAwait(false);
                     }
 
                     if (failedOps.Count > 1)
@@ -763,7 +779,7 @@ namespace AzureTableDataStore
                             allowReplace ? TableOperationType.InsertOrReplace : TableOperationType.Insert, 
                             LargeBlobNullBehavior.DeleteBlob, batchItems, failedTableBatches));
                     var parallelTaskRuns = Task.WhenAll(batchGroupAsTasks);
-                    await parallelTaskRuns;
+                    await parallelTaskRuns.ConfigureAwait(false);
                 
                 }
 
@@ -890,7 +906,7 @@ namespace AzureTableDataStore
                 var tableRef = GetTable();
                 var tableOp = TableWriteOpFromType(opType, entityItem.SerializedEntity);
 
-                await tableRef.ExecuteAsync(tableOp);
+                await tableRef.ExecuteAsync(tableOp).ConfigureAwait(false);
             }
             catch (Exception e)
             {
@@ -914,7 +930,7 @@ namespace AzureTableDataStore
                         .Select(x => DeleteBlobsFromReference(entityItem.SourceEntity, x,
                             BuildBlobPath(x, entityItem.SerializedEntity.PartitionKey, entityItem.SerializedEntity.RowKey))).ToArray();
                     collectiveBlobOpTask = Task.WhenAll(blobOpTasks);
-                    await collectiveBlobOpTask;
+                    await collectiveBlobOpTask.ConfigureAwait(false);
                 }
                 else
                 {
@@ -923,7 +939,7 @@ namespace AzureTableDataStore
                             BuildBlobPath(x, entityItem.SerializedEntity.PartitionKey, entityItem.SerializedEntity.RowKey), allowReplace,
                             largeBlobNullBehavior)).ToArray();
                     collectiveBlobOpTask = Task.WhenAll(blobOpTasks);
-                    await collectiveBlobOpTask;
+                    await collectiveBlobOpTask.ConfigureAwait(false);
                 }
                 
             }
@@ -983,7 +999,7 @@ namespace AzureTableDataStore
                 var batchOp = new TableBatchOperation();
 
                 batchItems.ForEach(item => batchOp.Add(TableWriteOpFromType(opType, item.SerializedEntity)));
-                await tableRef.ExecuteBatchAsync(batchOp);
+                await tableRef.ExecuteBatchAsync(batchOp).ConfigureAwait(false);
             }
             catch (Exception e)
             {
@@ -1028,7 +1044,7 @@ namespace AzureTableDataStore
                         });
 
                         collectiveBlobOpTask = Task.WhenAll(parallelBlobOpTasks);
-                        await collectiveBlobOpTask;
+                        await collectiveBlobOpTask.ConfigureAwait(false);
                     }
                     catch (Exception)
                     {
@@ -1063,7 +1079,7 @@ namespace AzureTableDataStore
             if (entities == null || entities.Length == 0)
                 return;
 
-            await DeleteInternalAsync(batchingMode, entities);
+            await DeleteInternalAsync(batchingMode, entities).ConfigureAwait(false);
         }
 
         public async Task DeleteAsync(BatchingMode batchingMode,
@@ -1073,14 +1089,15 @@ namespace AzureTableDataStore
                 return;
 
             await DeleteInternalAsync(batchingMode,
-                entityIds.Select(x => new EntityKeyPair(x.partitionKey, x.rowKey)).ToArray());
+                entityIds.Select(x => new EntityKeyPair(x.partitionKey, x.rowKey)).ToArray()).ConfigureAwait(false);
         }
 
         public async Task DeleteAsync(BatchingMode batchingMode, Expression<Func<TData, bool>> queryExpression)
         {
-            var results = await FindAsync(queryExpression, x => new {PartitionKey = "", RowKey = ""});
+            var results = await FindAsync(queryExpression, x => new {PartitionKey = "", RowKey = ""})
+                .ConfigureAwait(false);
 
-            await DeleteInternalAsync(batchingMode, results.ToArray());
+            await DeleteInternalAsync(batchingMode, results.ToArray()).ConfigureAwait(false);
         }
 
         private async Task DeleteInternalAsync(BatchingMode batchingMode, TData[] entities)
@@ -1239,7 +1256,7 @@ namespace AzureTableDataStore
                             item => RunAsSingleOperation(true, TableOperationType.Delete,
                                 LargeBlobNullBehavior.DeleteBlob, item, failedOps));
                         var parallelTaskRuns = Task.WhenAll(parallelOpsAsTasks);
-                        await parallelTaskRuns;
+                        await parallelTaskRuns.ConfigureAwait(false);
                     }
 
                     if (failedOps.Count > 1)
@@ -1294,7 +1311,7 @@ namespace AzureTableDataStore
                         batchItems => RunAsBatchOperations(true, batchingMode, TableOperationType.Delete,
                             LargeBlobNullBehavior.DeleteBlob, batchItems, failedTableBatches));
                     var parallelTaskRuns = Task.WhenAll(batchGroupAsTasks);
-                    await parallelTaskRuns;
+                    await parallelTaskRuns.ConfigureAwait(false);
 
                 }
 
@@ -1333,7 +1350,7 @@ namespace AzureTableDataStore
             var entities = entityKeys.Select(CreateEntityFromKeys)
                 .ToArray();
 
-            await DeleteInternalAsync(batchingMode, entities);
+            await DeleteInternalAsync(batchingMode, entities).ConfigureAwait(false);
         }
 
 
@@ -1342,7 +1359,7 @@ namespace AzureTableDataStore
             if (entities == null || entities.Length == 0)
                 return;
 
-            await InsertInternalAsync(entities, batchingMode, true);
+            await InsertInternalAsync(entities, batchingMode, true).ConfigureAwait(false);
         }
 
         private List<string> ValidateSelectExpressionAndExtractMembers(Expression expression)
@@ -1384,7 +1401,7 @@ namespace AzureTableDataStore
             if (entities == null || entities.Length == 0)
                 return;
 
-            await MergeInternalAsync(selectMergedPropertiesExpression, batchingMode, largeBlobNullBehavior, entities.Select(x => new DataStoreEntity<TData>("*", x)).ToArray());
+            await MergeInternalAsync(selectMergedPropertiesExpression, batchingMode, largeBlobNullBehavior, entities.Select(x => new DataStoreEntity<TData>("*", x)).ToArray()).ConfigureAwait(false);
         }
         
         private async Task MergeInternalAsync(Expression<Func<TData, object>> selectMergedPropertiesExpression, BatchingMode batchingMode, LargeBlobNullBehavior largeBlobNullBehavior, DataStoreEntity<TData>[] entities)
@@ -1435,7 +1452,7 @@ namespace AzureTableDataStore
                             if (@ref.StoredInstance == null)
                                 continue;
 
-                            var stream = await @ref.StoredInstance.AsyncDataStream.Value;
+                            var stream = await @ref.StoredInstance.AsyncDataStream.Value.ConfigureAwait(false);
                             @ref.StoredInstance.Length = stream.Length;
                             entityData.PropertyDictionary.Add(@ref.FlattenedPropertyName,
                                 EntityProperty.GeneratePropertyForString(
@@ -1618,7 +1635,7 @@ namespace AzureTableDataStore
                             item => RunAsSingleOperation(true, TableOperationType.Merge,
                                 largeBlobNullBehavior, item, failedOps));
                         var parallelTaskRuns = Task.WhenAll(parallelOpsAsTasks);
-                        await parallelTaskRuns;
+                        await parallelTaskRuns.ConfigureAwait(false);
                     }
 
                     if (failedOps.Count > 1)
@@ -1673,7 +1690,7 @@ namespace AzureTableDataStore
                         batchItems => RunAsBatchOperations(true, batchingMode, TableOperationType.Merge,
                             largeBlobNullBehavior, batchItems, failedTableBatches));
                     var parallelTaskRuns = Task.WhenAll(batchGroupAsTasks);
-                    await parallelTaskRuns;
+                    await parallelTaskRuns.ConfigureAwait(false);
 
                 }
 
@@ -1714,7 +1731,7 @@ namespace AzureTableDataStore
             if (entities == null || entities.Length == 0)
                 return;
 
-            await MergeInternalAsync(selectMergedPropertiesExpression, batchingMode, largeBlobNullBehavior, entities);
+            await MergeInternalAsync(selectMergedPropertiesExpression, batchingMode, largeBlobNullBehavior, entities).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -1747,20 +1764,23 @@ namespace AzureTableDataStore
 
         public async Task<IList<TData>> ListAsync(Expression<Func<TData, object>> selectExpression = null, int? limit = null)
         {
-            var result = await FindWithMetadataAsyncInternal(null, selectExpression, limit);
+            var result = await FindWithMetadataAsyncInternal(null, selectExpression, limit)
+                .ConfigureAwait(false);
             return result.Select(x => x.Value).ToList();
         }
 
         public async Task<IList<DataStoreEntity<TData>>> ListWithMetadataAsync(
             Expression<Func<TData, object>> selectExpression = null, int? limit = null)
         {
-            var result = await FindWithMetadataAsyncInternal(null, selectExpression, limit);
+            var result = await FindWithMetadataAsyncInternal(null, selectExpression, limit)
+                .ConfigureAwait(false);
             return result;
         }
 
         public async Task<TData> GetAsync(Expression<Func<TData, bool>> queryExpression, Expression<Func<TData, object>> selectExpression = null)
         {
-            var result = await FindWithMetadataAsyncInternal(queryExpression, selectExpression, 1);
+            var result = await FindWithMetadataAsyncInternal(queryExpression, selectExpression, 1)
+                .ConfigureAwait(false);
             var first = result.FirstOrDefault();
             return first != null ? first.Value : default(TData);
 
@@ -1770,7 +1790,8 @@ namespace AzureTableDataStore
 
         public async Task<TData> GetAsync(Expression<Func<TData, DateTimeOffset, bool>> queryExpression, Expression<Func<TData, object>> selectExpression = null)
         {
-            var result = await FindWithMetadataAsyncInternal(queryExpression, selectExpression, 1);
+            var result = await FindWithMetadataAsyncInternal(queryExpression, selectExpression, 1)
+                .ConfigureAwait(false);
             var first = result.FirstOrDefault();
             return first != null ? first.Value : default(TData);
 
@@ -1828,7 +1849,8 @@ namespace AzureTableDataStore
 
                     do
                     {
-                        var results = await tableRef.ExecuteQuerySegmentedAsync(query, TransformQueryResult, token);
+                        var results = await tableRef.ExecuteQuerySegmentedAsync(query, TransformQueryResult, token)
+                            .ConfigureAwait(false);
                         token = results.ContinuationToken;
                         foundEntities.AddRange(results.Results);
                         if (limitCount != null && foundEntities.Count >= limitCount)
@@ -1852,14 +1874,16 @@ namespace AzureTableDataStore
 
         public async Task<DataStoreEntity<TData>> GetWithMetadataAsync(Expression<Func<TData, bool>> queryExpression, Expression<Func<TData, object>> selectExpression = null)
         {
-            var result = await FindWithMetadataAsyncInternal(queryExpression, selectExpression, 1);
+            var result = await FindWithMetadataAsyncInternal(queryExpression, selectExpression, 1)
+                .ConfigureAwait(false);
             var first = result.FirstOrDefault();
             return first;
         }
 
         public async Task<DataStoreEntity<TData>> GetWithMetadataAsync(Expression<Func<TData, DateTimeOffset, bool>> queryExpression, Expression<Func<TData, object>> selectExpression = null)
         {
-            var result = await FindWithMetadataAsyncInternal(queryExpression, selectExpression, 1);
+            var result = await FindWithMetadataAsyncInternal(queryExpression, selectExpression, 1)
+                .ConfigureAwait(false);
             var first = result.FirstOrDefault();
             return first;
         }
@@ -1867,23 +1891,26 @@ namespace AzureTableDataStore
 
         public async Task<IList<DataStoreEntity<TData>>> FindWithMetadataAsync(Expression<Func<TData, bool>> queryExpression, Expression<Func<TData, object>> selectExpression = null, int? limit = null)
         {
-            return await FindWithMetadataAsyncInternal(queryExpression, selectExpression, limit);
+            return await FindWithMetadataAsyncInternal(queryExpression, selectExpression, limit)
+                .ConfigureAwait(false);
         }
 
         public async Task<IList<DataStoreEntity<TData>>> FindWithMetadataAsync(Expression<Func<TData, DateTimeOffset, bool>> queryExpression, Expression<Func<TData, object>> selectExpression = null, int? limit = null)
         {
-            return await FindWithMetadataAsyncInternal(queryExpression, selectExpression, limit);
+            return await FindWithMetadataAsyncInternal(queryExpression, selectExpression, limit).ConfigureAwait(false);
         }
 
         public async Task<IList<TData>> FindAsync(Expression<Func<TData, bool>> queryExpression, Expression<Func<TData, object>> selectExpression = null, int? limit = null)
         {
-            var results = await FindWithMetadataAsyncInternal(queryExpression, selectExpression, limit);
+            var results = await FindWithMetadataAsyncInternal(queryExpression, selectExpression, limit)
+                .ConfigureAwait(false);
             return results.Select(x => x.Value).ToList();
         }
 
         public async Task<IList<TData>> FindAsync(Expression<Func<TData, DateTimeOffset, bool>> queryExpression, Expression<Func<TData, object>> selectExpression = null, int? limit = null)
         {
-            var results = await FindWithMetadataAsyncInternal(queryExpression, selectExpression, limit);
+            var results = await FindWithMetadataAsyncInternal(queryExpression, selectExpression, limit)
+                .ConfigureAwait(false);
             return results.Select(x => x.Value).ToList();
         }
 
@@ -1892,7 +1919,7 @@ namespace AzureTableDataStore
             var exceptions = new List<Exception>();
             try
             {
-                await GetTable().DeleteIfExistsAsync();
+                await GetTable().DeleteIfExistsAsync().ConfigureAwait(false);
             }
             catch (Exception e)
             {
@@ -1901,7 +1928,8 @@ namespace AzureTableDataStore
 
             try
             {
-                await GetContainerClient().DeleteIfExistsAsync();
+                await GetContainerClient().DeleteIfExistsAsync()
+                    .ConfigureAwait(false);
             }
             catch (Exception e)
             {
@@ -1947,7 +1975,8 @@ namespace AzureTableDataStore
                 TableContinuationToken continuationToken = null;
                 do
                 {
-                    var segment = await tableRef.ExecuteQuerySegmentedAsync(query, continuationToken);
+                    var segment = await tableRef.ExecuteQuerySegmentedAsync(query, continuationToken)
+                        .ConfigureAwait(false);
                     resultCount += segment.Results.Count;
                     continuationToken = segment.ContinuationToken;
                 } while (continuationToken != null);
@@ -1984,7 +2013,8 @@ namespace AzureTableDataStore
                 TableContinuationToken continuationToken = null;
                 do
                 {
-                    var segment = await tableRef.ExecuteQuerySegmentedAsync(tableQuery, continuationToken);
+                    var segment = await tableRef.ExecuteQuerySegmentedAsync(tableQuery, continuationToken)
+                        .ConfigureAwait(false);
                     resultCount += segment.Results.Count;
                     continuationToken = segment.ContinuationToken;
                 } while (continuationToken != null);
@@ -2001,7 +2031,7 @@ namespace AzureTableDataStore
             EnumeratorFunc<DataStoreEntity<TData>> enumeratorFunc, TableContinuationToken continuationToken = null)
         {
             await EnumerateWithMetadataInternalAsync(queryExpression, entitiesPerPage, enumeratorFunc,
-                continuationToken);
+                continuationToken).ConfigureAwait(false);
         }
 
         public async Task EnumerateWithMetadataAsync(Expression<Func<TData, DateTimeOffset, bool>> queryExpression,
@@ -2009,7 +2039,7 @@ namespace AzureTableDataStore
             TableContinuationToken continuationToken = null)
         {
             await EnumerateWithMetadataInternalAsync(queryExpression, entitiesPerPage, enumeratorFunc,
-                continuationToken);
+                continuationToken).ConfigureAwait(false);
         }
 
         private async Task EnumerateWithMetadataInternalAsync(Expression queryExpression, int entitiesPerPage,
@@ -2046,12 +2076,13 @@ namespace AzureTableDataStore
 
                     do
                     {
-                        var results = await tableRef.ExecuteQuerySegmentedAsync(query, TransformQueryResult, token);
+                        var results = await tableRef.ExecuteQuerySegmentedAsync(query, TransformQueryResult, token)
+                            .ConfigureAwait(false);
                         token = results.ContinuationToken;
                         bool continueEnumeration = false;
                         try
                         {
-                            continueEnumeration = await enumeratorFunc(results.Results, token);
+                            continueEnumeration = await enumeratorFunc(results.Results, token).ConfigureAwait(false);
                         }
                         catch (Exception e)
                         {
