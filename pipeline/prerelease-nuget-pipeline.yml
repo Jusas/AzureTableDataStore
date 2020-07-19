@@ -12,13 +12,13 @@ steps:
   - task: PublishPipelineArtifact@1
     displayName: 'Publish as artifact'
     inputs:
-      targetPath: '$(Build.ArtifactStagingDirectory)/NugetPkg'
+      targetPath: '$(Build.ArtifactStagingDirectory)'
       artifactName: NugetPackage
 
   - task: DotNetCoreCLI@2
     displayName: 'Push to nuget.org'
     inputs:
       command: 'push'
-      packagesToPush: '$(Build.ArtifactStagingDirectory)/NugetPkg/*.nupkg'
+      packagesToPush: '$(Build.ArtifactStagingDirectory)/*.nupkg'
       nuGetFeedType: 'external'
       publishFeedCredentials: 'Nuget.org'
