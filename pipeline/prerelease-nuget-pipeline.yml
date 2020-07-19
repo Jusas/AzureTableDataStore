@@ -7,15 +7,7 @@ variables:
   buildConfiguration: 'Release'
 
 steps:
-  - task: DotNetCoreCLI@2
-    displayName: 'Build nuget package'
-    inputs:
-      command: 'pack'
-      packagesToPack: 'src/AzureTableDataStore/AzureTableDataStore.csproj'
-      includesymbols: true
-      includesource: true
-      versioningScheme: 'byBuildNumber'
-      outputDir: '$(Build.ArtifactStagingDirectory)/NugetPkg'
+  - script: dotnet pack -o $(Build.ArtifactStagingDirectory) --include-symbols --include-source --configuration $(buildConfiguration) --version-suffix "prerelease-$(Date:yyyyMMdd).$(Rev:.r).$(Build.BuildNumber)"
 
   - task: PublishPipelineArtifact@1
     displayName: 'Publish as artifact'
