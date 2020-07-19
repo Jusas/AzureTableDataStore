@@ -1,0 +1,32 @@
+trigger: none
+  
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  buildConfiguration: 'Release'
+
+steps:
+  - task: DotNetCoreCLI@2
+    displayName: 'Build nuget package'
+    inputs:
+      command: 'pack'
+      packagesToPack: 'src/AzureTableDataStore/AzureTableDataStore.csproj'
+      includesymbols: true
+      includesource: true
+      versioningScheme: 'byBuildNumber'
+      outputDir: '$(Build.ArtifactStagingDirectory)/NugetPkg'
+
+  - task: PublishPipelineArtifact@1
+    displayName: 'Publish as artifact'
+    inputs:
+      targetPath: '$(Build.ArtifactStagingDirectory)/NugetPkg'
+      artifactName: NugetPackage
+
+  - task: DotNetCoreCLI@2
+    displayName: 'Push to nuget.org'
+    inputs:
+      command: 'push'
+      packagesToPush: '$(Build.ArtifactStagingDirectory)/NugetPkg/*.nupkg'
+      nuGetFeedType: 'external'
+      publishFeedCredentials: 'Nuget.org'

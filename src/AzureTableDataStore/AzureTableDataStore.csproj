@@ -2,12 +2,18 @@
 
   <PropertyGroup>
     <TargetFramework>netstandard2.0</TargetFramework>
-    <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+    <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
     <PackageRequireLicenseAcceptance>true</PackageRequireLicenseAcceptance>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <Version>0.9.0</Version>
     <Authors>Jussi Saarivirta</Authors>
     <Description>A simplified interface to Azure Storage Tables with the ability to reference blobs in Blob Containers.</Description>
+    <Copyright>Jussi Saarivirta</Copyright>
+    <PackageProjectUrl>https://github.com/Jusas/AzureTableDataStore</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/Jusas/AzureTableDataStore</RepositoryUrl>
+    <RepositoryType>Git</RepositoryType>
+    <PackageTags>Azure, Azure Storage, Azure Table Storage, Table</PackageTags>
+    <PackageIcon>logo-nuget.png</PackageIcon>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
@@ -23,5 +29,13 @@
     <PackageReference Include="Microsoft.Azure.Cosmos.Table" Version="1.0.7" />
     <PackageReference Include="System.Linq.Expressions" Version="4.3.0" />
   </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\graphics\logo-nuget.png">
+      <Pack>True</Pack>
+      <PackagePath></PackagePath>
+    </None>
+  </ItemGroup>
+
 
 </Project>
