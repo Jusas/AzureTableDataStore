@@ -6,10 +6,12 @@ pool:
 variables:
   buildConfiguration: 'Release'
   nuGetSourceServerUrl: 'https://api.nuget.org/v3/index.json'
-  nuGetSourceServerApiKey: $(NugetApiKey) # set in the pipeline variables as a secret
+  # Set in the pipeline variables as a secret, because service connection with ApiKey just doesn't work.
+  nuGetSourceServerApiKey: $(NugetApiKey) 
 
 steps:
-  - script: dotnet pack -o $(Build.ArtifactStagingDirectory) --include-symbols --include-source --configuration $(buildConfiguration) --version-suffix "prerelease-$(Build.BuildNumber)" src/AzureTableDataStore/AzureTableDataStore.csproj
+  # Version numbering is just so unbelievably difficult.
+  - script: dotnet pack -o $(Build.ArtifactStagingDirectory) --include-symbols --include-source --configuration $(buildConfiguration) /p:Version=$(grep -oPm1 "(?<=<Version>)[^<]+" src/AzureTableDataStore/AzureTableDataStore.csproj)-prerelease-$(Build.BuildNumber)" src/AzureTableDataStore/AzureTableDataStore.csproj
 
   - task: PublishPipelineArtifact@1
     displayName: 'Publish as artifact'
@@ -17,6 +19,7 @@ steps:
       targetPath: '$(Build.ArtifactStagingDirectory)'
       artifactName: NugetPackage
 
+  # Because Nuget has some serious issues.
   - task: DotNetCoreCLI@2
     displayName: 'Push to Nuget.org'
     inputs:
