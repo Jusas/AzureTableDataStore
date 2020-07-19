@@ -5,6 +5,8 @@ pool:
 
 variables:
   buildConfiguration: 'Release'
+  nuGetSourceServerUrl: 'https://api.nuget.org/v3/index.json'
+  nuGetSourceServerApiKey: $(NugetApiKey) # set in the pipeline variables as a secret
 
 steps:
   - script: dotnet pack -o $(Build.ArtifactStagingDirectory) --include-symbols --include-source --configuration $(buildConfiguration) --version-suffix "prerelease-$(Build.BuildNumber)" src/AzureTableDataStore/AzureTableDataStore.csproj
@@ -16,9 +18,11 @@ steps:
       artifactName: NugetPackage
 
   - task: DotNetCoreCLI@2
-    displayName: 'Push to nuget.org'
+    displayName: 'Push to Nuget.org'
     inputs:
-      command: 'push'
-      packagesToPush: '$(Build.ArtifactStagingDirectory)/*.nupkg'
-      nuGetFeedType: 'external'
-      publishFeedCredentials: 'Nuget.org'
+      command: custom
+      custom: nuget
+      arguments: >
+        push $(Build.ArtifactStagingDirectory)/*.nupkg
+        -s $(NuGetSourceServerUrl)
+        -k $(NuGetSourceServerApiKey)
