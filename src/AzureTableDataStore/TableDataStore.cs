@@ -15,7 +15,6 @@ using System.Runtime.CompilerServices;
 using System.Runtime.Serialization;
 using System.Threading.Tasks;
 using Azure;
-using Azure.Storage.Blobs.Specialized;
 
 [assembly: InternalsVisibleTo("AzureTableDataStore.Tests")]
 
@@ -211,7 +210,7 @@ namespace AzureTableDataStore
 
         private (string partitionKey, string rowKey) GetEntityKeys(TData entry)
         {
-            return (_entityTypePartitionKeyPropertyInfo.GetValue(entry).ToString(), _entityTypeRowKeyPropertyInfo.GetValue(entry).ToString());
+            return (_entityTypePartitionKeyPropertyInfo.GetValue(entry)?.ToString(), _entityTypeRowKeyPropertyInfo.GetValue(entry)?.ToString());
         }
 
         public async Task InsertAsync(BatchingMode batchingMode, params TData[] entities)
@@ -568,8 +567,9 @@ namespace AzureTableDataStore
                         if (UseClientSideValidation)
                         {
                             var entityValidationErrors = SerializationUtils.ValidateProperties(tableEntity);
-                            var blobPaths = entityData.BlobPropertyRefs.Select(x =>
-                                BuildBlobPath(x, entityKeys.partitionKey, entityKeys.rowKey));
+                            var blobPaths = entityData.BlobPropertyRefs
+                                .Where(x => x.StoredInstance != null)
+                                .Select(x => BuildBlobPath(x, entityKeys.partitionKey, entityKeys.rowKey));
                             var pathValidations = blobPaths.Select(x => SerializationUtils.ValidateBlobPath(x));
                             entityValidationErrors.AddRange(pathValidations.Where(x => x.Count > 0).SelectMany(x => x));
 
@@ -726,7 +726,13 @@ namespace AzureTableDataStore
                         await parallelTaskRuns.ConfigureAwait(false);
                     }
 
-                    if (failedOps.Count > 1)
+                    if (failedOps.Count == 1 && allEntities.Count == 1)
+                    {
+                        failedOps.TryTake(out var ex);
+                        throw ex;
+                    }
+
+                    if (failedOps.Count >= 1)
                     {
                         var exception = new AzureTableDataStoreMultiOperationException<TData>(
                             "One or more operations had errors");
@@ -734,11 +740,6 @@ namespace AzureTableDataStore
                         throw exception;
                     }
 
-                    if (failedOps.Count == 1 && allEntities.Count == 1)
-                    {
-                        failedOps.TryTake(out var ex);
-                        throw ex;
-                    }
                 }
                 catch (AzureTableDataStoreSingleOperationException<TData>)
                 {
@@ -1259,18 +1260,18 @@ namespace AzureTableDataStore
                         await parallelTaskRuns.ConfigureAwait(false);
                     }
 
-                    if (failedOps.Count > 1)
+                    if (failedOps.Count == 1 && allEntities.Count == 1)
+                    {
+                        failedOps.TryTake(out var ex);
+                        throw ex;
+                    }
+
+                    if (failedOps.Count >= 1)
                     {
                         var exception = new AzureTableDataStoreMultiOperationException<TData>(
                             "One or more operations had errors");
                         exception.SingleOperationExceptions.AddRange(failedOps);
                         throw exception;
-                    }
-
-                    if (failedOps.Count == 1 && allEntities.Count == 1)
-                    {
-                        failedOps.TryTake(out var ex);
-                        throw ex;
                     }
                 }
                 catch (AzureTableDataStoreSingleOperationException<TData>)
@@ -1364,6 +1365,9 @@ namespace AzureTableDataStore
 
         private List<string> ValidateSelectExpressionAndExtractMembers(Expression expression)
         {
+            if(expression == null)
+                return new List<string>();
+
             List<string> mergedPropertyNames;
             try
             {
@@ -1459,12 +1463,19 @@ namespace AzureTableDataStore
                                     JsonConvert.SerializeObject(@ref.StoredInstance, _jsonSerializerSettings)));
                         }
 
-                        foreach (var propertyName in propertyNames)
+                        if (propertyNames.Count == 0)
                         {
-                            if (entityData.PropertyDictionary.ContainsKey(propertyName))
+                            selectedPropertyValues = entityData.PropertyDictionary;
+                        }
+                        else
+                        {
+                            foreach (var propertyName in propertyNames)
                             {
-                                var property = entityData.PropertyDictionary[propertyName];
-                                selectedPropertyValues.Add(propertyName, property);
+                                if (entityData.PropertyDictionary.ContainsKey(propertyName))
+                                {
+                                    var property = entityData.PropertyDictionary[propertyName];
+                                    selectedPropertyValues.Add(propertyName, property);
+                                }
                             }
                         }
 
@@ -1479,8 +1490,9 @@ namespace AzureTableDataStore
                         if (UseClientSideValidation)
                         {
                             var entityValidationErrors = SerializationUtils.ValidateProperties(tableEntity);
-                            var blobPaths = entityData.BlobPropertyRefs.Select(x =>
-                                BuildBlobPath(x, entityKeys.partitionKey, entityKeys.rowKey));
+                            var blobPaths = entityData.BlobPropertyRefs
+                                .Where(x => x.StoredInstance != null)
+                                .Select(x => BuildBlobPath(x, entityKeys.partitionKey, entityKeys.rowKey));
                             var pathValidations = blobPaths.Select(x => SerializationUtils.ValidateBlobPath(x));
                             entityValidationErrors.AddRange(pathValidations.Where(x => x.Count > 0).SelectMany(x => x));
 
@@ -1638,18 +1650,18 @@ namespace AzureTableDataStore
                         await parallelTaskRuns.ConfigureAwait(false);
                     }
 
-                    if (failedOps.Count > 1)
+                    if (failedOps.Count == 1 && allEntities.Count == 1)
+                    {
+                        failedOps.TryTake(out var ex);
+                        throw ex;
+                    }
+
+                    if (failedOps.Count >= 1)
                     {
                         var exception = new AzureTableDataStoreMultiOperationException<TData>(
                             "One or more operations had errors");
                         exception.SingleOperationExceptions.AddRange(failedOps);
                         throw exception;
-                    }
-
-                    if (failedOps.Count == 1 && allEntities.Count == 1)
-                    {
-                        failedOps.TryTake(out var ex);
-                        throw ex;
                     }
                 }
                 catch (AzureTableDataStoreSingleOperationException<TData>)

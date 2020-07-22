@@ -1,11 +1,9 @@
 using System;
-using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Text;
 using System.Threading.Tasks;
-using Azure.Storage.Blobs.Models;
 using AzureTableDataStore.Tests.Infrastructure;
 using AzureTableDataStore.Tests.Models;
 using FluentAssertions;

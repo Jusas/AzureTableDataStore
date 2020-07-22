@@ -16,7 +16,7 @@ namespace AzureTableDataStore
         public BlobUriBuilder(string connectionString)
         {
             _blobServiceClient = new BlobServiceClient(connectionString);
-            _credential = AzureBlobStorageUtils.GetCredentialFromConnectionString(connectionString);
+            _credential = AzureStorageUtils.GetStorageSharedKeyCredentialFromConnectionString(connectionString);
         }
 
         public BlobUriBuilder(StorageSharedKeyCredential credential, Uri blobStorageServiceUri)

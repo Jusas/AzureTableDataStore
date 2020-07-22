@@ -1,14 +1,16 @@
 ﻿using System;
+using System.IO;
 using System.Text;
 using System.Threading.Tasks;
 using Azure.Storage.Blobs.Models;
+using AzureTableDataStore.Tests.Models;
 using AzureTableDataStore.Tests.Models.SpecialCases;
 using FluentAssertions;
 using Xunit;
 
 namespace AzureTableDataStore.Tests.IntegrationTests
 {
-    
+
     public class SpecialCaseTests : IClassFixture<StorageContextFixture>
     {
         private StorageContextFixture _fixture;
@@ -75,6 +77,32 @@ namespace AzureTableDataStore.Tests.IntegrationTests
             // This should throw, the table is gone.
             await Assert.ThrowsAnyAsync<Exception>(() => store.CountRowsAsync());
 
+        }
+
+        [Fact]
+        public async Task T03_InitializeClientWithoutAllowingToCreateStorageResources()
+        {
+            var testContext = "initializingstorage";
+            _fixture.CreateTestTableAndContainerToStorage(testContext, PublicAccessType.None);
+
+            var testEntity = MockData.TelescopeMockDataGenerator.CreateDataSet(1);
+
+            var store = _fixture.GetNewTableDataStoreWithStorageCredentials<TelescopePackageProduct>(testContext, false);
+            await store.InsertAsync(BatchingMode.None, testEntity);
+            
+            // Should not throw.
+            var results = await store.ListAsync();
+
+            results.Count.Should().Be(1);
+
+            using (var imageStream = await results[0].MainImage.AsyncDataStream.Value)
+            {
+                using (var reader = new BinaryReader(imageStream))
+                {
+                    var dataBytes = reader.ReadBytes((int)results[0].MainImage.Length);
+                    dataBytes.Length.Should().Be((int)results[0].MainImage.Length);
+                }
+            }
         }
 
     }
