@@ -4,7 +4,7 @@ using System.Linq;
 
 namespace AzureTableDataStore
 {
-    public static class ArrayExtensions
+    internal static class ArrayExtensions
     {
         /// <summary>
         /// Splits a collection to smaller batches.

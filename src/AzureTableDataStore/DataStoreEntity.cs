@@ -23,6 +23,9 @@ namespace AzureTableDataStore
         /// </summary>
         public TData Value { get; set; }
 
+        /// <summary>
+        /// Empty constructor.
+        /// </summary>
         public DataStoreEntity()
         {
         }

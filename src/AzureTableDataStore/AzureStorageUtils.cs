@@ -5,7 +5,7 @@ using Microsoft.Azure.Cosmos.Table;
 
 namespace AzureTableDataStore
 {
-    public class AzureStorageUtils
+    internal class AzureStorageUtils
     {
 
         internal enum CredentialType
@@ -94,7 +94,7 @@ namespace AzureTableDataStore
                 }
 
             }
-            catch (IndexOutOfRangeException e)
+            catch (IndexOutOfRangeException)
             {
                 throw;
             }

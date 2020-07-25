@@ -55,6 +55,8 @@ namespace AzureTableDataStore
         const int MaxSingleBatchCount = 100;
 
         private readonly object _syncLock = new object();
+
+        /// <inheritdoc />
         public string Name { get; private set; }
         private readonly CloudStorageAccount _cloudStorageAccount;
         private readonly BlobServiceClient _blobServiceClient;
@@ -70,7 +72,11 @@ namespace AzureTableDataStore
         private IReadOnlyCollection<ReflectionUtils.PropertyRef<LargeBlob>> _dataTypeLargeBlobRefs;
         private IReadOnlyCollection<ReflectionUtils.PropertyRef<ICollection>> _dataTypeCollectionRefs;
 
-        private EntityPropertyConverterOptions _entityPropertyConverterOptions;
+        private EntityPropertyConverterOptions _entityPropertyConverterOptions = null;
+        
+        /// <summary>
+        /// Table Storage entity flattening options.
+        /// </summary>
         public EntityPropertyConverterOptions EntityPropertyConverterOptions
         {
             get => _entityPropertyConverterOptions;
@@ -112,19 +118,38 @@ namespace AzureTableDataStore
         /// </summary>
         public int ParallelBlobBatchOperationLimit { get; set; } = 8;
 
-
+        /// <summary>
+        /// Create a new instance of TableDataStore using connection strings.
+        /// </summary>
+        /// <param name="tableStorageConnectionString">The storage account connection string</param>
+        /// <param name="tableName">The table name to use</param>
+        /// <param name="createTableIfNotExist">Create the table if it does not exist yet</param>
+        /// <param name="blobContainerName">The blob container name where the <see cref="LargeBlob"/> blobs of entities are to be stored</param>
+        /// <param name="createContainerIfNotExist">Create the blob container if it does not exist yet</param>
+        /// <param name="blobContainerAccessType">The access type for blob containers when creating them</param>
+        /// <param name="blobStorageConnectionString">The storage account connection string that is used for storing the blobs</param>
+        /// <param name="storeName">This TableDataStore instance's name, for dependency injection. Optional, defaults to "default".</param>
+        /// <param name="partitionKeyProperty">The property name in <typeparamref name="TData"/> that acts as the entity Partition Key.<br/>
+        /// Not needed if the <typeparamref name="TData"/> has the Partition Key defined using the <see cref="TablePartitionKeyAttribute"/>.
+        /// </param>
+        /// <param name="rowKeyProperty">The property name in <typeparamref name="TData"/> that acts as the entity Row Key.<br/>
+        /// Not needed if the <typeparamref name="TData"/> has the Row Key defined using the <see cref="TableRowKeyAttribute"/>.
+        /// </param>
         public TableDataStore(string tableStorageConnectionString, string tableName, bool createTableIfNotExist, string blobContainerName, bool createContainerIfNotExist, PublicAccessType blobContainerAccessType,
             string blobStorageConnectionString = null, string storeName = null, string partitionKeyProperty = null, string rowKeyProperty = null)
         {
             Name = storeName ?? "default";
-            _cloudStorageAccount = CloudStorageAccount.Parse(tableStorageConnectionString);
+            _cloudStorageAccount = CloudStorageAccount.Parse(tableStorageConnectionString 
+                ?? throw new ArgumentNullException(nameof(tableStorageConnectionString), "Connection string must be provided"));
             _blobServiceClient = new BlobServiceClient(blobStorageConnectionString ?? tableStorageConnectionString);
             _blobUriBuilder = new BlobUriBuilder(blobStorageConnectionString ?? tableStorageConnectionString);
             _configuration = new Configuration()
             {
                 BlobContainerAccessType = blobContainerAccessType,
-                BlobContainerName = blobContainerName,
-                StorageTableName = tableName,
+                BlobContainerName = blobContainerName 
+                    ?? throw new ArgumentNullException(nameof(blobContainerName), "Blob container name must be provided"),
+                StorageTableName = tableName 
+                    ?? throw new ArgumentNullException(nameof(tableName), "Table name must be provided"),
                 PartitionKeyProperty = ResolvePartitionKeyProperty(partitionKeyProperty),
                 RowKeyProperty = ResolveRowKeyProperty(rowKeyProperty),
                 AllowContainerCreation = createContainerIfNotExist,
@@ -133,19 +158,44 @@ namespace AzureTableDataStore
             PostConfigure();
         }
 
+        /// <summary>
+        /// Create a new instance of TableDataStore using credentials and URIs.
+        /// </summary>
+        /// <param name="tableStorageCredentials">The table storage account credentials</param>
+        /// <param name="tableStorageUri">The URI of the table storage account <br/> i.e. <c>https://accountname.table.core.windows.net</c></param>
+        /// <param name="tableName">The table name to use</param>
+        /// <param name="createTableIfNotExist">Create the table if it does not exist yet</param>
+        /// <param name="blobStorageServiceUri">The URI of the blob storage account <br/> i.e. <c>https://accountname.blob.core.windows.net</c></param>
+        /// <param name="blobContainerName">The blob container name where the <see cref="LargeBlob"/> blobs of entities are to be stored</param>
+        /// <param name="createContainerIfNotExist">Create the blob container if it does not exist yet</param>
+        /// <param name="blobContainerAccessType">The access type for blob containers when creating them</param>
+        /// <param name="blobStorageCredentials">The storage account credentials that is used for storing the blobs</param>
+        /// <param name="storeName">This TableDataStore instance's name, for dependency injection. Optional, defaults to "default".</param>
+        /// <param name="partitionKeyProperty">The property name in <typeparamref name="TData"/> that acts as the entity Partition Key.<br/>
+        /// Not needed if the <typeparamref name="TData"/> has the Partition Key defined using the <see cref="TablePartitionKeyAttribute"/>.
+        /// </param>
+        /// <param name="rowKeyProperty">The property name in <typeparamref name="TData"/> that acts as the entity Row Key.<br/>
+        /// Not needed if the <typeparamref name="TData"/> has the Row Key defined using the <see cref="TableRowKeyAttribute"/>.
+        /// </param>
         public TableDataStore(StorageCredentials tableStorageCredentials, StorageUri tableStorageUri, string tableName, bool createTableIfNotExist,
             StorageSharedKeyCredential blobStorageCredentials, Uri blobStorageServiceUri, string blobContainerName, bool createContainerIfNotExist, PublicAccessType blobContainerAccessType,
             string storeName = null, string partitionKeyProperty = null, string rowKeyProperty = null)
         {
             Name = storeName ?? "default";
-            _cloudStorageAccount = new CloudStorageAccount(tableStorageCredentials, tableStorageUri);
-            _blobServiceClient = new BlobServiceClient(blobStorageServiceUri, blobStorageCredentials);
+            _cloudStorageAccount = new CloudStorageAccount(
+                tableStorageCredentials ?? throw new ArgumentNullException(nameof(tableStorageCredentials), "Table credentials must be provided"), 
+                tableStorageUri ?? throw new ArgumentNullException(nameof(tableStorageUri), "Storage account URI must be provided"));
+            _blobServiceClient = new BlobServiceClient(
+                blobStorageServiceUri ?? throw new ArgumentNullException(nameof(blobStorageServiceUri), "Storage account URI must be provided"), 
+                blobStorageCredentials ?? throw new ArgumentNullException(nameof(blobStorageCredentials), "Blob storage credentials must be provided"));
             _blobUriBuilder = new BlobUriBuilder(blobStorageCredentials, blobStorageServiceUri);
             _configuration = new Configuration()
             {
                 BlobContainerAccessType = blobContainerAccessType,
-                BlobContainerName = blobContainerName,
-                StorageTableName = tableName,
+                BlobContainerName = blobContainerName
+                    ?? throw new ArgumentNullException(nameof(blobContainerName), "Blob container name must be provided"),
+                StorageTableName = tableName
+                    ?? throw new ArgumentNullException(nameof(tableName), "Table name must be provided"),
                 PartitionKeyProperty = ResolvePartitionKeyProperty(partitionKeyProperty),
                 RowKeyProperty = ResolveRowKeyProperty(rowKeyProperty),
                 AllowContainerCreation = createContainerIfNotExist,
@@ -159,7 +209,8 @@ namespace AzureTableDataStore
             _entityTypeRowKeyPropertyInfo = typeof(TData).GetProperty(_configuration.RowKeyProperty);
             _entityTypePartitionKeyPropertyInfo = typeof(TData).GetProperty(_configuration.PartitionKeyProperty);
 
-            EntityPropertyConverterOptions = new EntityPropertyConverterOptions();
+            if(EntityPropertyConverterOptions == null)
+                EntityPropertyConverterOptions = new EntityPropertyConverterOptions();
         }
 
         private string ResolvePartitionKeyProperty(string inputPartitionKeyProperty)
@@ -213,6 +264,7 @@ namespace AzureTableDataStore
             return (_entityTypePartitionKeyPropertyInfo.GetValue(entry)?.ToString(), _entityTypeRowKeyPropertyInfo.GetValue(entry)?.ToString());
         }
 
+        /// <inheritdoc />
         public async Task InsertAsync(BatchingMode batchingMode, params TData[] entities)
         {
             if (entities == null || entities.Length == 0)
@@ -1075,6 +1127,7 @@ namespace AzureTableDataStore
         }
 
 
+        /// <inheritdoc />
         public async Task DeleteAsync(BatchingMode batchingMode, params TData[] entities)
         {
             if (entities == null || entities.Length == 0)
@@ -1083,6 +1136,7 @@ namespace AzureTableDataStore
             await DeleteInternalAsync(batchingMode, entities).ConfigureAwait(false);
         }
 
+        /// <inheritdoc />
         public async Task DeleteAsync(BatchingMode batchingMode,
             params (string partitionKey, string rowKey)[] entityIds)
         {
@@ -1093,6 +1147,7 @@ namespace AzureTableDataStore
                 entityIds.Select(x => new EntityKeyPair(x.partitionKey, x.rowKey)).ToArray()).ConfigureAwait(false);
         }
 
+        /// <inheritdoc />
         public async Task DeleteAsync(BatchingMode batchingMode, Expression<Func<TData, bool>> queryExpression)
         {
             var results = await FindAsync(queryExpression, x => new {PartitionKey = "", RowKey = ""})
@@ -1355,6 +1410,7 @@ namespace AzureTableDataStore
         }
 
 
+        /// <inheritdoc />
         public async Task InsertOrReplaceAsync(BatchingMode batchingMode, params TData[] entities)
         {
             if (entities == null || entities.Length == 0)
@@ -1399,6 +1455,7 @@ namespace AzureTableDataStore
             return mergedPropertyNames;
         }
 
+        /// <inheritdoc />
         public async Task MergeAsync(BatchingMode batchingMode, Expression<Func<TData, object>> selectMergedPropertiesExpression, 
             LargeBlobNullBehavior largeBlobNullBehavior = LargeBlobNullBehavior.IgnoreProperty, params TData[] entities)
         {
@@ -1737,6 +1794,7 @@ namespace AzureTableDataStore
         }
 
 
+        /// <inheritdoc />
         public async Task MergeAsync(BatchingMode batchingMode, Expression<Func<TData, object>> selectMergedPropertiesExpression, 
             LargeBlobNullBehavior largeBlobNullBehavior = LargeBlobNullBehavior.IgnoreProperty, params DataStoreEntity<TData>[] entities)
         {
@@ -1751,6 +1809,7 @@ namespace AzureTableDataStore
         /// property references.
         /// </summary>
         /// <param name="entity"></param>
+        /// <param name="includeNullBlobs"></param>
         /// <returns></returns>
         private (
             Dictionary<string, EntityProperty> PropertyDictionary,
@@ -1774,6 +1833,7 @@ namespace AzureTableDataStore
             return (propertyDictionary, blobPropertyRefs, collectionPropertyRefs);
         }
 
+        /// <inheritdoc />
         public async Task<IList<TData>> ListAsync(Expression<Func<TData, object>> selectExpression = null, int? limit = null)
         {
             var result = await FindWithMetadataAsyncInternal(null, selectExpression, limit)
@@ -1781,6 +1841,7 @@ namespace AzureTableDataStore
             return result.Select(x => x.Value).ToList();
         }
 
+        /// <inheritdoc />
         public async Task<IList<DataStoreEntity<TData>>> ListWithMetadataAsync(
             Expression<Func<TData, object>> selectExpression = null, int? limit = null)
         {
@@ -1789,6 +1850,7 @@ namespace AzureTableDataStore
             return result;
         }
 
+        /// <inheritdoc />
         public async Task<TData> GetAsync(Expression<Func<TData, bool>> queryExpression, Expression<Func<TData, object>> selectExpression = null)
         {
             var result = await FindWithMetadataAsyncInternal(queryExpression, selectExpression, 1)
@@ -1800,6 +1862,7 @@ namespace AzureTableDataStore
         }
 
 
+        /// <inheritdoc />
         public async Task<TData> GetAsync(Expression<Func<TData, DateTimeOffset, bool>> queryExpression, Expression<Func<TData, object>> selectExpression = null)
         {
             var result = await FindWithMetadataAsyncInternal(queryExpression, selectExpression, 1)
@@ -1884,6 +1947,7 @@ namespace AzureTableDataStore
             }
         }
 
+        /// <inheritdoc />
         public async Task<DataStoreEntity<TData>> GetWithMetadataAsync(Expression<Func<TData, bool>> queryExpression, Expression<Func<TData, object>> selectExpression = null)
         {
             var result = await FindWithMetadataAsyncInternal(queryExpression, selectExpression, 1)
@@ -1892,6 +1956,7 @@ namespace AzureTableDataStore
             return first;
         }
 
+        /// <inheritdoc />
         public async Task<DataStoreEntity<TData>> GetWithMetadataAsync(Expression<Func<TData, DateTimeOffset, bool>> queryExpression, Expression<Func<TData, object>> selectExpression = null)
         {
             var result = await FindWithMetadataAsyncInternal(queryExpression, selectExpression, 1)
@@ -1901,17 +1966,20 @@ namespace AzureTableDataStore
         }
 
 
+        /// <inheritdoc />
         public async Task<IList<DataStoreEntity<TData>>> FindWithMetadataAsync(Expression<Func<TData, bool>> queryExpression, Expression<Func<TData, object>> selectExpression = null, int? limit = null)
         {
             return await FindWithMetadataAsyncInternal(queryExpression, selectExpression, limit)
                 .ConfigureAwait(false);
         }
 
+        /// <inheritdoc />
         public async Task<IList<DataStoreEntity<TData>>> FindWithMetadataAsync(Expression<Func<TData, DateTimeOffset, bool>> queryExpression, Expression<Func<TData, object>> selectExpression = null, int? limit = null)
         {
             return await FindWithMetadataAsyncInternal(queryExpression, selectExpression, limit).ConfigureAwait(false);
         }
 
+        /// <inheritdoc />
         public async Task<IList<TData>> FindAsync(Expression<Func<TData, bool>> queryExpression, Expression<Func<TData, object>> selectExpression = null, int? limit = null)
         {
             var results = await FindWithMetadataAsyncInternal(queryExpression, selectExpression, limit)
@@ -1919,6 +1987,7 @@ namespace AzureTableDataStore
             return results.Select(x => x.Value).ToList();
         }
 
+        /// <inheritdoc />
         public async Task<IList<TData>> FindAsync(Expression<Func<TData, DateTimeOffset, bool>> queryExpression, Expression<Func<TData, object>> selectExpression = null, int? limit = null)
         {
             var results = await FindWithMetadataAsyncInternal(queryExpression, selectExpression, limit)
@@ -1926,6 +1995,7 @@ namespace AzureTableDataStore
             return results.Select(x => x.Value).ToList();
         }
 
+        /// <inheritdoc />
         public async Task DeleteTableAsync(bool deleteBlobContainer)
         {
             var exceptions = new List<Exception>();
@@ -1960,6 +2030,7 @@ namespace AzureTableDataStore
                     exceptions.Count == 1 ? exceptions.First() : new AggregateException(exceptions));
         }
 
+        /// <inheritdoc />
         public async Task<long> CountRowsAsync(Expression<Func<TData, bool>> queryExpression)
         {
             try
@@ -2013,6 +2084,7 @@ namespace AzureTableDataStore
             }
         }
 
+        /// <inheritdoc />
         public async Task<long> CountRowsAsync()
         {
             long resultCount = 0;
@@ -2046,6 +2118,7 @@ namespace AzureTableDataStore
             }
         }
 
+        /// <inheritdoc />
         public async Task EnumerateWithMetadataAsync(Expression<Func<TData, bool>> queryExpression, int entitiesPerPage,
             EnumeratorFunc<DataStoreEntity<TData>> enumeratorFunc, TableContinuationToken continuationToken = null)
         {
@@ -2053,6 +2126,7 @@ namespace AzureTableDataStore
                 continuationToken).ConfigureAwait(false);
         }
 
+        /// <inheritdoc />
         public async Task EnumerateWithMetadataAsync(Expression<Func<TData, DateTimeOffset, bool>> queryExpression,
             int entitiesPerPage, EnumeratorFunc<DataStoreEntity<TData>> enumeratorFunc,
             TableContinuationToken continuationToken = null)

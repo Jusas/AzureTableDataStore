@@ -3,43 +3,13 @@ using System.Collections.Generic;
 
 namespace AzureTableDataStore
 {
-    ///// <summary>
-    ///// Indicates the problem source.
-    ///// </summary>
-    //public enum ProblemSourceType
-    //{
-    //    /// <summary>
-    //    /// A general (unspecified, unexpected) exception.
-    //    /// </summary>
-    //    General,
-
-    //    /// <summary>
-    //    /// An exception that is originating from an Azure Table Storage operation.
-    //    /// </summary>
-    //    TableStorage,
-
-    //    /// <summary>
-    //    /// An exception that is originating from an Azure Blob Storage operation.
-    //    /// </summary>
-    //    BlobStorage,
-
-    //    /// <summary>
-    //    /// A configuration issue.
-    //    /// </summary>
-    //    Configuration,
-
-    //    /// <summary>
-    //    /// A data issue.
-    //    /// </summary>
-    //    Data
-    //}
-
-
+    #pragma warning disable CS1591 // Missing XML comment for publicly visible type or member
     /// <summary>
     /// Exception representing an error in configuration.
     /// </summary>
     public class AzureTableDataStoreConfigurationException : Exception
     {
+
         public AzureTableDataStoreConfigurationException(string message, Exception inner = null) : base(message, inner)
         {
             
@@ -199,4 +169,5 @@ namespace AzureTableDataStore
             
         }
     }
+    #pragma warning restore CS1591 // Missing XML comment for publicly visible type or member
 }

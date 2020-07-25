@@ -9,7 +9,7 @@ namespace AzureTableDataStore
     /// Converts the <c>entity => new { entity.Prop1, entity.Prop2 ... }</c> expressions into a list of
     /// string that contain the property names.
     /// </summary>
-    public class AzureStorageQuerySelectTranslator : ExpressionVisitor
+    internal class AzureStorageQuerySelectTranslator : ExpressionVisitor
     {
 
         private EntityPropertyConverterOptions _options = new EntityPropertyConverterOptions();

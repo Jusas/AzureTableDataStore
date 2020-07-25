@@ -8,7 +8,7 @@ namespace AzureTableDataStore
     /// <summary>
     /// A builder for blob download URIs.
     /// </summary>
-    public class BlobUriBuilder
+    internal class BlobUriBuilder
     {
         private BlobServiceClient _blobServiceClient;
         private StorageSharedKeyCredential _credential;

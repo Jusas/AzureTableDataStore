@@ -99,6 +99,9 @@ namespace AzureTableDataStore
             return BlobUriBuilder.GetBlobUrl(BlobClient, withSasToken, tokenExpiration);
         }
 
+        /// <summary>
+        /// Empty constructor.
+        /// </summary>
         public LargeBlob()
         {
         }
