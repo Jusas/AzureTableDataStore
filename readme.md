@@ -1,6 +1,6 @@
 # Azure Table Data Store
 
-[![Build Status](https://dev.azure.com/jusasi/AzureTableDataStore/_apis/build/status/Jusas.AzureTableDataStore?branchName=master)](https://dev.azure.com/jusasi/AzureTableDataStore/_build/latest?definitionId=2&branchName=master) ![Azure DevOps coverage](https://img.shields.io/azure-devops/coverage/jusasi/AzureTableDataStore/2/master)
+[![Build Status](https://dev.azure.com/jusasi/AzureTableDataStore/_apis/build/status/Jusas.AzureTableDataStore?branchName=master)](https://dev.azure.com/jusasi/AzureTableDataStore/_build/latest?definitionId=2&branchName=master) [![Azure DevOps coverage](https://img.shields.io/azure-devops/coverage/jusasi/AzureTableDataStore/2/master)](https://dev.azure.com/jusasi/AzureTableDataStore/_build/latest?definitionId=2&branchName=master) [![Wiki](https://img.shields.io/badge/docs-in%20wiki-green.svg?style=flat)](https://github.com/Jusas/AzureTableDataStore/wiki) 
 
 ![Logo](graphics/logo.png)
 
