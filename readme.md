@@ -1,6 +1,6 @@
 # Azure Table Data Store
 
-[![Build Status](https://dev.azure.com/jusasi/AzureTableDataStore/_apis/build/status/Jusas.AzureTableDataStore?branchName=master)](https://dev.azure.com/jusasi/AzureTableDataStore/_build/latest?definitionId=2&branchName=master) [![Azure DevOps coverage](https://img.shields.io/azure-devops/coverage/jusasi/AzureTableDataStore/2/master)](https://dev.azure.com/jusasi/AzureTableDataStore/_build/latest?definitionId=2&branchName=master) [![Wiki](https://img.shields.io/badge/docs-in%20wiki-green.svg?style=flat)](https://github.com/Jusas/AzureTableDataStore/wiki) 
+[![Build Status](https://dev.azure.com/jusasi/AzureTableDataStore/_apis/build/status/Jusas.AzureTableDataStore?branchName=master)](https://dev.azure.com/jusasi/AzureTableDataStore/_build/latest?definitionId=2&branchName=master) [![Azure DevOps coverage](https://img.shields.io/azure-devops/coverage/jusasi/AzureTableDataStore/2/master)](https://dev.azure.com/jusasi/AzureTableDataStore/_build/latest?definitionId=2&branchName=master) [![Nuget](https://img.shields.io/nuget/v/AzureTableDataStore.svg)](https://www.nuget.org/packages/AzureTableDataStore/) [![Wiki](https://img.shields.io/badge/docs-in%20wiki-green.svg?style=flat)](https://github.com/Jusas/AzureTableDataStore/wiki) 
 
 ![Logo](graphics/logo-nuget.png)
 
@@ -8,12 +8,15 @@
 
 This library was created to provide an easy interface to Azure Storage Tables, working in concert with Azure Blob Storage to seamlessly store blobs related to table rows there.
 
-## NOTE: Work in progress!
-    When stable, a Nuget package will be released. Until then, this notification remains.
-
 The **Microsoft.Azure.Cosmos.Table** library already provides a pretty decent interface for table operations but quite often you still have to repeat yourself a lot, and work with queries and more complex table entities can get tedious. In many cases what we really need from the tables is really simple and we'd like to spend as little effort as possible to insert, update, find and iterate over rows but the library forces us to make fairly many calls for somewhat simple use case scenarios. Finally when you add blobs into the mix, things suddenly become a lot more work intensive.
 
 Hence why **AzureTableDataStore** exists: to make it easy and fast to utilize Table and Blob storage in common use cases. Under the hood it uses the Microsoft.Azure.Cosmos.Table to perform the Table operations and Azure.Storage.Blobs to perform the Blob operations.
+
+# Installing
+
+Grab the latest Nuget package.
+
+    Install-Package AzureTableDataStore
 
 # Examples
 
