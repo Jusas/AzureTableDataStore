@@ -408,14 +408,16 @@ namespace AzureTableDataStore
         Task<DataStoreEntity<TData>> GetWithMetadataAsync(Expression<Func<TData, DateTimeOffset, bool>> queryExpression, Expression<Func<TData, object>> selectExpression = null);
 
         /// <summary>
-        /// Deletes the entire source table, effectively deleting all its contents, as well as the entire blob container used to store the files.
+        /// Deletes the entire source table, effectively deleting all its contents.
+        /// If deleteBlobContainer is true, the blob container used to store the files will get deleted as well.
         /// <para>
         /// Note: this action is irreversible.
         /// </para>
         /// </summary>
+        /// <param name="deleteBlobContainer">If true, also delete the blob container that holds the <see cref="LargeBlob"/> files.</param>
         /// <returns></returns>
         /// <exception cref="AzureTableDataStoreInternalException"></exception>
-        Task DeleteTableAndBlobContainerAsync();
+        Task DeleteTableAsync(bool deleteBlobContainer);
 
         /// <summary>
         /// Deletes entities from table. If these entities also contain <see cref="LargeBlob"/> properties, those blobs will be deleted.

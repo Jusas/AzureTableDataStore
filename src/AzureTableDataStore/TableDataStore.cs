@@ -1926,7 +1926,7 @@ namespace AzureTableDataStore
             return results.Select(x => x.Value).ToList();
         }
 
-        public async Task DeleteTableAndBlobContainerAsync()
+        public async Task DeleteTableAsync(bool deleteBlobContainer)
         {
             var exceptions = new List<Exception>();
             try
@@ -1936,6 +1936,13 @@ namespace AzureTableDataStore
             catch (Exception e)
             {
                 exceptions.Add(new AzureTableDataStoreInternalException("Failed to delete table: " + e.Message, e));
+            }
+
+            if (!deleteBlobContainer)
+            {
+                if (exceptions.Any())
+                    throw exceptions.First();
+                return;
             }
 
             try

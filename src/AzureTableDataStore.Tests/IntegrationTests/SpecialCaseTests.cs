@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Text;
 using System.Threading.Tasks;
@@ -70,7 +71,7 @@ namespace AzureTableDataStore.Tests.IntegrationTests
             // Note: this is not instantaneous. It appears that the table is still found immediately after invoking the delete call.
             // This test is somewhat sketchy; we'll have to delay to give time for the table to really disappear.
 
-            await store.DeleteTableAndBlobContainerAsync();
+            await store.DeleteTableAsync(true);
 
             await Task.Delay(32000);
 
@@ -103,6 +104,41 @@ namespace AzureTableDataStore.Tests.IntegrationTests
                     dataBytes.Length.Should().Be((int)results[0].MainImage.Length);
                 }
             }
+        }
+
+        [Fact]
+        public async Task T04_EntitySerializationDeserializationTestsE2E()
+        {
+            var testContext = "entityserializations";
+
+            var testEntity = new TestClass1()
+            {
+                MyDate = DateTime.UtcNow,
+                MyDictionaryOfSubClasses = new Dictionary<string, EntitySubClass>()
+                {
+                    {"myItem", new EntitySubClass() {MyValue = "foo"}}
+                },
+                MyEntityId = "test",
+                MyEntityPartitionKey = "test",
+                MyGuid = Guid.NewGuid(),
+                MyInt = 1,
+                MyLargeBlob = null,
+                MyListOfStrings = new List<string>() {"alpha", "beta"},
+                MyLong = 123L,
+                MyStringValue = "hello",
+                MySubClass = new EntitySubClass()
+                {
+                    MyValue = "world"
+                }
+            };
+
+            var store = _fixture.GetNewTableDataStore<TestClass1>(testContext);
+            await store.InsertAsync(BatchingMode.None, testEntity);
+
+            var results = await store.GetAsync(x => x.MyEntityId == "test");
+            results.MyDictionaryOfSubClasses["myItem"].MyValue.Should().Be("foo");
+            results.MyListOfStrings.Count.Should().Be(2);
+            results.MySubClass.MyValue.Should().Be("world");
         }
 
     }
