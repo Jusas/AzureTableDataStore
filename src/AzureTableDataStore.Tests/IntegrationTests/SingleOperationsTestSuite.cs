@@ -435,5 +435,44 @@ namespace AzureTableDataStore.Tests.IntegrationTests
 
         }
 
+        [Fact(/*Skip = "reason"*/)]
+        public async Task T12_Merge_One_WithBlob_SelectedFieldsOnly_ButDoNotUpdateBlob()
+        {
+            // Arrange
+
+            var testContext = "t12";
+
+            var newItem = MockData.TelescopeMockDataGenerator.CreateDataSet(1).First();
+            newItem.ProductId = "updatetarget12";
+
+            // Act
+            // Insert our entity that we're going to update and make sure it is as it should.
+            var store = _fixture.GetNewTableDataStore<TelescopePackageProduct>(testContext, isPublic: true);
+            await store.InsertAsync(BatchingMode.None, newItem);
+
+            var blobPath = store.BuildBlobPath(_fixture.TableAndContainerNames[testContext],
+                newItem.CategoryId, newItem.ProductId, "MainImage", newItem.MainImage.Filename);
+
+            _fixture.AssertTableEntityExists(testContext, newItem.CategoryId, newItem.ProductId);
+            _fixture.AssertBlobExists(testContext, blobPath);
+
+
+            var retrievedItem = await store.GetAsync(x => x.ProductId == newItem.ProductId);
+
+            // Ok, now update selected fields. Note that the blob reference is there in place, and contains a HTTP stream that doesn't support getting Length.
+            // Previously this caused an exception because we tried to read the length anyway even if we weren't updating the field in the table storage.
+            // The workaround was to set the property to null so that it would get ignored.
+            // Note: even when LargeBlobNullBehavior is DeleteBlob, we shouldn't delete, since we've explicitly not selected the blob field into our update.
+
+            retrievedItem.Description = "new description";
+            await store.MergeAsync(BatchingMode.None, x => new {x.Description}, LargeBlobNullBehavior.DeleteBlob,
+                retrievedItem);
+
+            var updatedItem = await store.GetAsync(x => x.ProductId == newItem.ProductId);
+            updatedItem.Description.Should().Be("new description");
+            _fixture.AssertBlobExists(testContext, blobPath);
+        }
+
+
     }
 }

@@ -1513,6 +1513,9 @@ namespace AzureTableDataStore
                             if (@ref.StoredInstance == null)
                                 continue;
 
+                            if (!propertyNames.Contains(@ref.FlattenedPropertyName))
+                                continue;
+
                             var stream = await @ref.StoredInstance.AsyncDataStream.Value.ConfigureAwait(false);
                             @ref.StoredInstance.Length = stream.Length;
                             entityData.PropertyDictionary.Add(@ref.FlattenedPropertyName,
@@ -1566,6 +1569,8 @@ namespace AzureTableDataStore
                                 SourceEntity = entity.Value,
                                 SerializedEntity = tableEntity,
                                 LargeBlobRefs = entityData.BlobPropertyRefs
+                                    .Where(x => propertyNames.Contains(x.FlattenedPropertyName))
+                                    .ToList()
                             });
                             continue;
                         }
@@ -1588,6 +1593,8 @@ namespace AzureTableDataStore
                                 SourceEntity = entity.Value,
                                 SerializedEntity = tableEntity,
                                 LargeBlobRefs = entityData.BlobPropertyRefs
+                                    .Where(x => propertyNames.Contains(x.FlattenedPropertyName))
+                                    .ToList()
                             });
                         }
                         else
@@ -1604,6 +1611,8 @@ namespace AzureTableDataStore
                                     SourceEntity = entity.Value,
                                     SerializedEntity = tableEntity,
                                     LargeBlobRefs = entityData.BlobPropertyRefs
+                                        .Where(x => propertyNames.Contains(x.FlattenedPropertyName))
+                                        .ToList()
                                 }
                             };
                             entityBatches.Add(entityBatch);
