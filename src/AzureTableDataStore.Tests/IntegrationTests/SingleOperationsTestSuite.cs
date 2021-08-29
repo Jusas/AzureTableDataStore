@@ -464,12 +464,16 @@ namespace AzureTableDataStore.Tests.IntegrationTests
             // The workaround was to set the property to null so that it would get ignored.
             // Note: even when LargeBlobNullBehavior is DeleteBlob, we shouldn't delete, since we've explicitly not selected the blob field into our update.
 
+            // Also: updating an object. Selecting the parent object (retrievedItem.Specifications) should cause the merge of all the flattened child properties.
+
             retrievedItem.Description = "new description";
-            await store.MergeAsync(BatchingMode.None, x => new {x.Description}, LargeBlobNullBehavior.DeleteBlob,
+            retrievedItem.Specifications.ApplicationDescription = "something else";
+            await store.MergeAsync(BatchingMode.None, x => new {x.Description, x.Specifications}, LargeBlobNullBehavior.DeleteBlob,
                 retrievedItem);
 
             var updatedItem = await store.GetAsync(x => x.ProductId == newItem.ProductId);
             updatedItem.Description.Should().Be("new description");
+            updatedItem.Specifications.ApplicationDescription.Should().Be("something else");
             _fixture.AssertBlobExists(testContext, blobPath);
         }
 

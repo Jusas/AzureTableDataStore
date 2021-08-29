@@ -5,7 +5,7 @@
     <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
     <PackageRequireLicenseAcceptance>true</PackageRequireLicenseAcceptance>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <Version>1.0.2</Version>
+    <Version>1.0.3</Version>
     <Authors>Jussi Saarivirta</Authors>
     <Description>A simplified interface to Azure Storage Tables with the ability to reference blobs in Blob Containers.</Description>
     <Copyright>Jussi Saarivirta</Copyright>

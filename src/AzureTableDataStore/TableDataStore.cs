@@ -1536,6 +1536,20 @@ namespace AzureTableDataStore
                                     var property = entityData.PropertyDictionary[propertyName];
                                     selectedPropertyValues.Add(propertyName, property);
                                 }
+                                // Child properties: if the property is an object, it will have been flattened into multiple properties.
+                                else if (entityData.PropertyDictionary.Any(x =>
+                                    x.Key.StartsWith(
+                                        propertyName + EntityPropertyConverterOptions.PropertyNameDelimiter,
+                                        StringComparison.InvariantCultureIgnoreCase)))
+                                {
+                                    var expandedProperties = entityData.PropertyDictionary.Where(x => x.Key.StartsWith(
+                                        propertyName + EntityPropertyConverterOptions.PropertyNameDelimiter,
+                                        StringComparison.InvariantCultureIgnoreCase)).ToArray();
+                                    foreach (var expandedProperty in expandedProperties)
+                                        if(!selectedPropertyValues.ContainsKey(expandedProperty.Key)) 
+                                            selectedPropertyValues.Add(expandedProperty.Key, expandedProperty.Value);
+
+                                }
                             }
                         }
 
